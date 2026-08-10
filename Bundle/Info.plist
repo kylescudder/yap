@@ -28,11 +28,11 @@
     <!-- Sparkle auto-update. Replace SUFeedURL with your hosted appcast and SUPublicEDKey
          with the key printed by Sparkle's generate_keys. -->
     <key>SUFeedURL</key>
-    <string>https://REPLACE-ME.example.com/yap/appcast.xml</string>
+    <string>https://github.com/kylescudder/yap/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>mvIbuKV2QxiMTtHMloIjz9qHLPBuwdFww3NyxDCsKQs=</string>
     <key>SUEnableAutomaticChecks</key>
-    <false/>
+    <true/>
     <key>SUScheduledCheckInterval</key>
     <integer>86400</integer>
 </dict>

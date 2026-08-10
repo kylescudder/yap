@@ -9,7 +9,7 @@
 #       xcrun notarytool store-credentials "YapNotary" \
 #            --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
 #   • Sparkle EdDSA keys generated (SUPublicEDKey set in Bundle/Info.plist; private key in keychain)
-#   • Set YAP_FEED_BASE_URL (or edit FEED_BASE_URL) to where you host builds + appcast.xml
+#   • gh CLI authenticated (publishes the release to GitHub)
 #
 # Usage: ./Scripts/release.sh [shortVersion] [buildNumber]
 set -euo pipefail
@@ -19,11 +19,11 @@ cd "$ROOT"
 
 CONFIG=release
 PB=/usr/libexec/PlistBuddy
+REPO="kylescudder/yap"
 VERSION="${1:-$($PB -c 'Print :CFBundleShortVersionString' Bundle/Info.plist)}"
 BUILD_NUM="${2:-$($PB -c 'Print :CFBundleVersion' Bundle/Info.plist)}"
 DEVID="${YAP_DEVID:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1)}"
 NOTARY_PROFILE="${YAP_NOTARY_PROFILE:-YapNotary}"
-FEED_BASE_URL="${YAP_FEED_BASE_URL:-https://REPLACE-ME.example.com/yap}"
 
 APP="$ROOT/build/Yap.app"
 DIST="$ROOT/dist"
@@ -83,23 +83,38 @@ rm -f "$ZIP"; /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
 
 echo "▶ Sparkle-signing the archive"
 SIGN_UPDATE="$(find .build -name sign_update -type f 2>/dev/null | head -1)"
-SIG=""
-if [ -n "$SIGN_UPDATE" ]; then
-    SIG="$("$SIGN_UPDATE" "$ZIP")"
-    echo "  $SIG"
+if [ -z "$SIGN_UPDATE" ]; then
+    echo "✗ sign_update not found (build once so Sparkle's artifact is present)."
+    exit 1
+fi
+SIG="$("$SIGN_UPDATE" "$ZIP")" # e.g. sparkle:edSignature="…" length="…"
+echo "  $SIG"
+
+echo "▶ Generating appcast.xml"
+PUBDATE="$(date -R 2>/dev/null || date)"
+cat > "$DIST/appcast.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Yap</title>
+    <item>
+      <title>Version $VERSION</title>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <sparkle:version>$BUILD_NUM</sparkle:version>
+      <pubDate>$PUBDATE</pubDate>
+      <enclosure url="https://github.com/$REPO/releases/download/v$VERSION/Yap-$VERSION.zip" type="application/octet-stream" $SIG />
+    </item>
+  </channel>
+</rss>
+EOF
+
+echo "▶ Publishing GitHub release v$VERSION"
+if gh release view "v$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+    gh release upload "v$VERSION" "$ZIP" "$DIST/appcast.xml" --repo "$REPO" --clobber
 else
-    echo "⚠ sign_update not found — run Sparkle's sign_update on $ZIP manually for the signature."
+    gh release create "v$VERSION" "$ZIP" "$DIST/appcast.xml" --repo "$REPO" \
+        --title "Yap $VERSION" --notes "Yap $VERSION"
 fi
 
-echo "✅ Release: $ZIP  (v$VERSION build $BUILD_NUM)"
-echo "   Upload the zip to $FEED_BASE_URL/ and add this <item> to appcast.xml:"
-cat <<EOF
-
-  <item>
-    <title>Version $VERSION</title>
-    <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-    <sparkle:version>$BUILD_NUM</sparkle:version>
-    <pubDate>$(date -R 2>/dev/null || date)</pubDate>
-    <enclosure url="$FEED_BASE_URL/Yap-$VERSION.zip" type="application/octet-stream" $SIG />
-  </item>
-EOF
+echo "✅ Published: https://github.com/$REPO/releases/tag/v$VERSION"
+echo "   Feed: https://github.com/$REPO/releases/latest/download/appcast.xml"
