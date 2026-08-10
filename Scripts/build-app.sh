@@ -28,8 +28,10 @@ if [ -n "$SPARKLE_FW" ]; then
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/Yap" 2>/dev/null || true
 fi
 
-# Pick a stable signing identity (override with YAP_SIGN_ID). Fall back to ad-hoc "-".
-SIGN_ID="${YAP_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '[0-9A-F]{40}' | head -1)}"
+# Prefer the Developer ID identity so dev + released builds share one TCC identity
+# (permission grants then persist across every local and downloaded copy).
+SIGN_ID="${YAP_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*\([0-9A-F]\{40\}\).*Developer ID Application.*/\1/p' | head -1)}"
+[ -z "$SIGN_ID" ] && SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '[0-9A-F]{40}' | head -1)"
 [ -z "$SIGN_ID" ] && SIGN_ID="-"
 
 if [ "$SIGN_ID" = "-" ]; then
