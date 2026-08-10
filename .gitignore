@@ -1,0 +1,19 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Build output
+build/
+dist/
+DerivedData/
+
+# Models (downloaded at runtime, not committed)
+Models/
+
+# macOS
+.DS_Store
+*.xcuserstate
+
+# Temp debug log
+yap-debug.log
