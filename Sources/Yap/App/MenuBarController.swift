@@ -29,7 +29,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func buildMenu() {
         let menu = NSMenu()
 
-        let header = menu.addItem(withTitle: "Yap", action: nil, keyEquivalent: "")
+        let header = menu.addItem(withTitle: "Yap \(Self.appVersion)", action: nil, keyEquivalent: "")
         header.isEnabled = false
 
         let hint = menu.addItem(withTitle: hintTitle, action: nil, keyEquivalent: "")
@@ -62,6 +62,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         menu.delegate = self
         statusItem.menu = menu
+    }
+
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
 
     private var hintTitle: String { "Hold \(settings.pushToTalkKey.display) to dictate · double-tap for hands-free" }
