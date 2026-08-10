@@ -1,0 +1,58 @@
+name: Release
+
+# Cuts a notarized, Sparkle-signed release and publishes it to GitHub Releases
+# whenever a v* tag is pushed (e.g. `git tag v0.0.1 && git push origin v0.0.1`).
+#
+# Required repository secrets:
+#   DEVELOPER_ID_P12_BASE64    base64 of your "Developer ID Application" .p12
+#                              (base64 -i devid.p12 | pbcopy)
+#   DEVELOPER_ID_P12_PASSWORD  the .p12 export password
+#   KEYCHAIN_PASSWORD          any throwaway password for the temp CI keychain
+#   AC_APPLE_ID                Apple ID email used for notarization
+#   AC_PASSWORD                app-specific password (appleid.apple.com)
+#   AC_TEAM_ID                 your Apple Developer Team ID
+#   SPARKLE_ED_PRIVATE_KEY     base64 Sparkle EdDSA private key (generate_keys -x)
+#   YAP_DEVID (optional)       Developer ID identity name; auto-detected if unset
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Needs an Xcode with the macOS 26 SDK (Foundation Models). If the macos-26 image
+    # isn't available, switch to macos-15 and add maxim-lobanov/setup-xcode for Xcode 26.
+    runs-on: macos-26
+    env:
+      YAP_DEVID: ${{ secrets.YAP_DEVID }}
+      AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
+      AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+      AC_TEAM_ID: ${{ secrets.AC_TEAM_ID }}
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import Developer ID certificate
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/devid.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # Make the temp keychain searchable alongside the login keychain.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$RUNNER_TEMP/devid.p12"
+
+      - name: Build, notarize, and publish
+        run: ./Scripts/release.sh "${GITHUB_REF_NAME#v}"

@@ -75,7 +75,13 @@ mkdir -p "$DIST"; rm -f "$ZIP"
 /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
 
 echo "▶ Notarizing (may take a few minutes)…"
-xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+if [ -n "${AC_APPLE_ID:-}" ] && [ -n "${AC_PASSWORD:-}" ] && [ -n "${AC_TEAM_ID:-}" ]; then
+    # CI / direct credentials
+    xcrun notarytool submit "$ZIP" --apple-id "$AC_APPLE_ID" --password "$AC_PASSWORD" --team-id "$AC_TEAM_ID" --wait
+else
+    # Local keychain profile
+    xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+fi
 
 echo "▶ Stapling + re-zipping"
 xcrun stapler staple "$APP"
@@ -87,7 +93,12 @@ if [ -z "$SIGN_UPDATE" ]; then
     echo "✗ sign_update not found (build once so Sparkle's artifact is present)."
     exit 1
 fi
-SIG="$("$SIGN_UPDATE" "$ZIP")" # e.g. sparkle:edSignature="…" length="…"
+# CI passes the EdDSA private key via env; locally it's read from the keychain.
+if [ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then
+    SIG="$("$SIGN_UPDATE" "$ZIP" -s "$SPARKLE_ED_PRIVATE_KEY")"
+else
+    SIG="$("$SIGN_UPDATE" "$ZIP")" # e.g. sparkle:edSignature="…" length="…"
+fi
 echo "  $SIG"
 
 echo "▶ Generating appcast.xml"
