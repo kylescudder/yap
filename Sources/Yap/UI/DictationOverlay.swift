@@ -1,7 +1,7 @@
 import AppKit
 
-/// A small floating HUD shown near the bottom of the screen while dictating.
-/// Uses a **non-activating** panel so it never steals focus from the target text field.
+/// A small floating HUD shown near the bottom of the screen while dictating. Non-activating
+/// (never steals focus). Palette matches the Graphite logo: amber dot, off-white waveform.
 final class DictationOverlay {
     private let panel: NSPanel
     private let dot = NSView()
@@ -11,11 +11,14 @@ final class DictationOverlay {
     private let width: CGFloat = 240
     private let height: CGFloat = 58
 
+    // Brand colours.
+    private let amber = NSColor(srgbRed: 1.0, green: 0xB0 / 255, blue: 0x20 / 255, alpha: 1)
+    private let neutral = NSColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
+
     init() {
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
                         styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered,
-                        defer: false)
+                        backing: .buffered, defer: false)
         panel.level = .statusBar
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
@@ -37,7 +40,7 @@ final class DictationOverlay {
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 5
         dot.frame = NSRect(x: 16, y: height - 23, width: 10, height: 10)
-        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+        dot.layer?.backgroundColor = amber.cgColor
 
         label.frame = NSRect(x: 34, y: height - 26, width: width - 46, height: 18)
         label.font = .systemFont(ofSize: 13, weight: .medium)
@@ -54,41 +57,41 @@ final class DictationOverlay {
         panel.contentView = effect
     }
 
-    func showRecording(rainbow: Bool = false) {
-        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
-        label.stringValue = rainbow ? "Listening… (Max)" : "Listening…"
+    func showRecording() {
+        setDot(amber)
+        label.stringValue = "Listening…"
         waveform.isHidden = false
-        waveform.start(rainbow: rainbow)
+        waveform.start()
+        present()
+    }
+
+    /// Recording an instruction in Command Mode.
+    func showCommand() {
+        setDot(amber)
+        label.stringValue = "Command — speak an instruction"
+        waveform.isHidden = false
+        waveform.start()
         present()
     }
 
     /// Mark the current session as hands-free (locked via double-tap).
     func markHandsFree() {
-        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+        setDot(amber)
         label.stringValue = "Hands-free · press to stop"
     }
 
-    /// Recording an instruction in Command Mode.
-    func showCommand() {
-        dot.layer?.backgroundColor = NSColor.systemPurple.cgColor
-        label.stringValue = "Command — speak an instruction"
-        waveform.isHidden = false
-        waveform.start(rainbow: false)
-        present()
-    }
-
-    /// Generic working state with a custom label (e.g. "Working…").
-    func showWorking(_ text: String) {
-        dot.layer?.backgroundColor = NSColor.systemOrange.cgColor
-        label.stringValue = text
+    func showProcessing(preparing: Bool = false) {
+        setDot(neutral)
+        label.stringValue = preparing ? "Preparing model…" : "Transcribing…"
         waveform.stop()
         waveform.isHidden = true
         present()
     }
 
-    func showProcessing(preparing: Bool = false) {
-        dot.layer?.backgroundColor = NSColor.systemOrange.cgColor
-        label.stringValue = preparing ? "Preparing model…" : "Transcribing…"
+    /// Generic working state with a custom label (e.g. "Working…").
+    func showWorking(_ text: String) {
+        setDot(neutral)
+        label.stringValue = text
         waveform.stop()
         waveform.isHidden = true
         present()
@@ -96,7 +99,7 @@ final class DictationOverlay {
 
     /// Brief transient message (e.g. an error), auto-dismissed.
     func flash(_ message: String) {
-        dot.layer?.backgroundColor = NSColor.systemGray.cgColor
+        setDot(neutral)
         label.stringValue = message
         waveform.stop()
         waveform.isHidden = true
@@ -113,9 +116,13 @@ final class DictationOverlay {
         waveform.push(min(1, max(0, CGFloat(rms) * 6)))
     }
 
+    private func setDot(_ color: NSColor) {
+        dot.layer?.backgroundColor = color.cgColor
+    }
+
     private func present() {
         positionBottomCenter()
-        panel.orderFrontRegardless() // show without activating / stealing focus
+        panel.orderFrontRegardless()
     }
 
     private func positionBottomCenter() {

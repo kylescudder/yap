@@ -1,38 +1,22 @@
 import AppKit
 
-/// A scrolling bar waveform driven by recent audio RMS levels. In `rainbow` mode (used when
-/// cleanup intensity is Max) the bars shimmer through the hue spectrum with a moving phase.
+/// A scrolling bar waveform driven by recent audio RMS levels. Off-white bars to match the
+/// Graphite logo (no rainbow — that treatment was dropped).
 final class WaveformView: NSView {
     private var levels: [CGFloat] = []
     private let maxBars = 30
     private let barWidth: CGFloat = 3
     private let gap: CGFloat = 2
 
-    private var rainbow = false
-    private var phase: CGFloat = 0
-    private var timer: Timer?
+    /// Brand off-white, matching the logo's waveform.
+    var barColor = NSColor(srgbRed: 0xEC / 255, green: 0xEC / 255, blue: 0xF0 / 255, alpha: 0.95)
 
-    /// Begin a session; clears history and starts the shimmer animation if rainbow is on.
-    func start(rainbow: Bool) {
-        self.rainbow = rainbow
+    func start() {
         levels.removeAll()
         needsDisplay = true
-        timer?.invalidate()
-        timer = nil
-        guard rainbow else { return }
-        let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.phase += 0.015
-            self.needsDisplay = true
-        }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
     }
 
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
+    func stop() { /* nothing to tear down */ }
 
     func push(_ level: CGFloat) {
         levels.append(min(1, max(0.05, level)))
@@ -42,20 +26,12 @@ final class WaveformView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard !levels.isEmpty else { return }
+        barColor.setFill()
+
         let count = min(levels.count, maxBars)
         let totalW = CGFloat(count) * barWidth + CGFloat(max(0, count - 1)) * gap
         var x = (bounds.width - totalW) / 2
-        let slice = Array(levels.suffix(count))
-
-        for (i, lvl) in slice.enumerated() {
-            let color: NSColor
-            if rainbow {
-                let hue = (CGFloat(i) / CGFloat(max(1, count)) + phase).truncatingRemainder(dividingBy: 1.0)
-                color = NSColor(hue: hue, saturation: 0.85, brightness: 1.0, alpha: 0.95)
-            } else {
-                color = NSColor.systemGreen.withAlphaComponent(0.9)
-            }
-            color.setFill()
+        for lvl in levels.suffix(count) {
             let h = max(2, lvl * bounds.height)
             let y = (bounds.height - h) / 2
             NSBezierPath(
@@ -65,6 +41,4 @@ final class WaveformView: NSView {
             x += barWidth + gap
         }
     }
-
-    deinit { timer?.invalidate() }
 }

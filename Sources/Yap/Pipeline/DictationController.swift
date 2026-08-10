@@ -79,7 +79,7 @@ final class DictationController {
         do {
             try recorder.start()
             recording = true
-            overlay.showRecording(rainbow: settings.cleanupIntensity == .max)
+            overlay.showRecording()
         } catch {
             Log.error("Audio start failed: \(error)")
             overlay.flash("Microphone unavailable")
