@@ -19,6 +19,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINDIR/Yap" "$APP/Contents/MacOS/Yap"
 cp "$ROOT/Bundle/Info.plist" "$APP/Contents/Info.plist"
+[ -f "$ROOT/Bundle/AppIcon.icns" ] && cp "$ROOT/Bundle/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 # Embed Sparkle.framework so the app can load it at runtime.
 SPARKLE_FW="$(find "$BINDIR" -maxdepth 1 -name 'Sparkle.framework' -type d | head -1)"
