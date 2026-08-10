@@ -26,6 +26,6 @@ rm -f "$OUT"
 
 echo "▶ Building $OUT"
 YAP_APP="$APP" YAP_ICNS="Bundle/AppIcon.icns" YAP_DMG_BG="build/dmg-bg.png" \
-  "$DMGBUILD" -s Scripts/dmg_settings.py "Yap" "$OUT"
+  "$DMGBUILD" -s Scripts/dmg_settings.py "Yap $VERSION" "$OUT"
 
 echo "✅ wrote $OUT"

@@ -87,8 +87,9 @@ python3 -m pip install --user --quiet dmgbuild 2>/dev/null \
   || python3 -m pip install --user --quiet --break-system-packages dmgbuild
 DMGBUILD="$(python3 -m site --user-base)/bin/dmgbuild"
 rm -f "$DMG"
+# Volume name is versioned so Finder never reuses a cached window layout for a "Yap" volume.
 YAP_APP="$APP" YAP_ICNS="Bundle/AppIcon.icns" YAP_DMG_BG="build/dmg-bg.png" \
-  "$DMGBUILD" -s Scripts/dmg_settings.py "Yap" "$DMG"
+  "$DMGBUILD" -s Scripts/dmg_settings.py "Yap $VERSION" "$DMG"
 codesign --force --sign "$DEVID" --timestamp "$DMG"
 echo "▶ Notarizing DMG"
 notarize "$DMG"
