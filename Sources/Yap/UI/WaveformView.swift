@@ -28,7 +28,9 @@ final class WaveformView: NSView {
         guard !levels.isEmpty else { return }
         barColor.setFill()
 
-        let count = min(levels.count, maxBars)
+        // Only draw as many bars as fit the (now narrow) view.
+        let maxFit = max(1, Int((bounds.width + gap) / (barWidth + gap)))
+        let count = min(levels.count, maxFit, maxBars)
         let totalW = CGFloat(count) * barWidth + CGFloat(max(0, count - 1)) * gap
         var x = (bounds.width - totalW) / 2
         for lvl in levels.suffix(count) {

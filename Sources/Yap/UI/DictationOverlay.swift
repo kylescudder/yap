@@ -1,19 +1,21 @@
 import AppKit
 
-/// A small floating HUD shown near the bottom of the screen while dictating. Non-activating
-/// (never steals focus). Palette matches the Graphite logo: amber dot, off-white waveform.
+/// A small, compact floating pill shown while dictating — amber dot beside a live waveform on a
+/// single line, matching the app icon. Non-activating (never steals focus), no text.
 final class DictationOverlay {
     private let panel: NSPanel
     private let dot = NSView()
-    private let label = NSTextField(labelWithString: "Listening…")
     private let waveform: WaveformView
+    private let spinner = NSProgressIndicator()
+    private let label = NSTextField(labelWithString: "")
 
-    private let width: CGFloat = 240
-    private let height: CGFloat = 58
+    private let width: CGFloat = 150
+    private let height: CGFloat = 30
 
     // Brand colours.
     private let amber = NSColor(srgbRed: 1.0, green: 0xB0 / 255, blue: 0x20 / 255, alpha: 1)
     private let neutral = NSColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
+    private let danger = NSColor(srgbRed: 0xFF / 255, green: 0x5A / 255, blue: 0x54 / 255, alpha: 1)
 
     init() {
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -33,82 +35,80 @@ final class DictationOverlay {
         effect.state = .active
         effect.blendingMode = .behindWindow
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
+        effect.layer?.cornerRadius = height / 2   // full pill
         effect.layer?.masksToBounds = true
         effect.autoresizingMask = [.width, .height]
 
+        let dotSize: CGFloat = 8
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = 5
-        dot.frame = NSRect(x: 16, y: height - 23, width: 10, height: 10)
+        dot.layer?.cornerRadius = dotSize / 2
+        dot.frame = NSRect(x: 14, y: (height - dotSize) / 2, width: dotSize, height: dotSize)
         dot.layer?.backgroundColor = amber.cgColor
 
-        label.frame = NSRect(x: 34, y: height - 26, width: width - 46, height: 18)
-        label.font = .systemFont(ofSize: 13, weight: .medium)
+        let contentX: CGFloat = 30
+        let contentW = width - contentX - 12
+        let rowY = (height - 16) / 2
+
+        waveform = WaveformView(frame: NSRect(x: contentX, y: rowY, width: contentW, height: 16))
+        waveform.autoresizingMask = [.width]
+
+        spinner.frame = NSRect(x: contentX, y: rowY, width: 16, height: 16)
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+        spinner.isHidden = true
+
+        label.frame = NSRect(x: contentX, y: rowY, width: contentW, height: 16)
+        label.font = .systemFont(ofSize: 11, weight: .medium)
         label.textColor = .labelColor
         label.lineBreakMode = .byTruncatingTail
-
-        waveform = WaveformView(frame: NSRect(x: 16, y: 10, width: width - 32, height: height - 40))
-        waveform.autoresizingMask = [.width]
-        waveform.isHidden = true
+        label.isHidden = true
 
         effect.addSubview(dot)
-        effect.addSubview(label)
         effect.addSubview(waveform)
+        effect.addSubview(spinner)
+        effect.addSubview(label)
         panel.contentView = effect
     }
 
     func showRecording() {
         setDot(amber)
-        label.stringValue = "Listening…"
-        waveform.isHidden = false
-        waveform.start()
+        label.isHidden = true
+        spinner.isHidden = true; spinner.stopAnimation(nil)
+        waveform.isHidden = false; waveform.start()
         present()
     }
 
-    /// Recording an instruction in Command Mode.
-    func showCommand() {
-        setDot(amber)
-        label.stringValue = "Command — speak an instruction"
-        waveform.isHidden = false
-        waveform.start()
-        present()
-    }
+    /// Command Mode looks the same compact pill.
+    func showCommand() { showRecording() }
 
-    /// Mark the current session as hands-free (locked via double-tap).
-    func markHandsFree() {
-        setDot(amber)
-        label.stringValue = "Hands-free · press to stop"
-    }
+    /// Hands-free (double-tap lock): the pill just stays up — no text.
+    func markHandsFree() { setDot(amber) }
 
     func showProcessing(preparing: Bool = false) {
         setDot(neutral)
-        label.stringValue = preparing ? "Preparing model…" : "Transcribing…"
-        waveform.stop()
-        waveform.isHidden = true
+        label.isHidden = true
+        waveform.isHidden = true; waveform.stop()
+        spinner.isHidden = false; spinner.startAnimation(nil)
         present()
     }
 
-    /// Generic working state with a custom label (e.g. "Working…").
-    func showWorking(_ text: String) {
-        setDot(neutral)
-        label.stringValue = text
-        waveform.stop()
-        waveform.isHidden = true
-        present()
-    }
+    /// Generic working state (Command Mode) — same spinner, no text.
+    func showWorking(_ text: String) { showProcessing() }
 
-    /// Brief transient message (e.g. an error), auto-dismissed.
+    /// Brief transient error (rare) — red dot + short message, auto-dismissed.
     func flash(_ message: String) {
-        setDot(neutral)
-        label.stringValue = message
-        waveform.stop()
-        waveform.isHidden = true
+        setDot(danger)
+        waveform.isHidden = true; waveform.stop()
+        spinner.isHidden = true; spinner.stopAnimation(nil)
+        label.isHidden = false; label.stringValue = message
         present()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in self?.hide() }
     }
 
     func hide() {
         waveform.stop()
+        spinner.stopAnimation(nil)
         panel.orderOut(nil)
     }
 
