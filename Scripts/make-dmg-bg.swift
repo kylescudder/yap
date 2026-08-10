@@ -21,14 +21,14 @@ NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = g
 let cg = g.cgContext
 
-// Vertical gradient ground (matches the icon).
-NSGradient(starting: col(0x141417), ending: col(0x242429))!
+// Light ground so Finder's black icon labels stay readable.
+NSGradient(starting: col(0xF1F1F4), ending: col(0xFBFBFD))!
     .draw(in: NSRect(x: 0, y: 0, width: W, height: H), angle: 90)
 
 // Amber arrow between the two icon columns (icons sit at y=205 from top → y-up = H-205).
 let ay = H - 205
-cg.setStrokeColor(col(0xFFB020).cgColor)
-cg.setFillColor(col(0xFFB020).cgColor)
+cg.setStrokeColor(col(0xF0A400).cgColor)
+cg.setFillColor(col(0xF0A400).cgColor)
 cg.setLineWidth(12); cg.setLineCap(.round)
 cg.move(to: CGPoint(x: 262, y: ay)); cg.addLine(to: CGPoint(x: 372, y: ay)); cg.strokePath()
 cg.move(to: CGPoint(x: 372, y: ay + 20)); cg.addLine(to: CGPoint(x: 400, y: ay))
@@ -44,9 +44,8 @@ func text(_ s: String, _ size: CGFloat, _ c: NSColor, _ weight: NSFont.Weight, c
     str.draw(in: NSRect(x: 0, y: centerY - sz.height / 2, width: W, height: sz.height))
 }
 
-text("Yap", 34, col(0xF2F2F5), .bold, centerY: H - 52)
-text("Local-first voice dictation", 13, col(0x9aa0b0), .regular, centerY: H - 86)
-text("Drag Yap onto the Applications folder", 13, col(0xB8BCC6), .medium, centerY: 44)
+text("Yap", 34, col(0x1B1B1F), .bold, centerY: H - 52)
+text("Local-first voice dictation", 13, col(0x7C7C84), .regular, centerY: H - 86)
 
 NSGraphicsContext.restoreGraphicsState()
 
