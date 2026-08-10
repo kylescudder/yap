@@ -93,9 +93,13 @@ if [ -z "$SIGN_UPDATE" ]; then
     echo "✗ sign_update not found (build once so Sparkle's artifact is present)."
     exit 1
 fi
-# CI passes the EdDSA private key via env; locally it's read from the keychain.
+# CI passes the EdDSA private key via env (the contents of `generate_keys -x`); locally it's
+# read from the keychain.
 if [ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then
-    SIG="$("$SIGN_UPDATE" "$ZIP" -s "$SPARKLE_ED_PRIVATE_KEY")"
+    KEYFILE="$(mktemp)"
+    printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$KEYFILE"
+    SIG="$("$SIGN_UPDATE" "$ZIP" --ed-key-file "$KEYFILE")"
+    rm -f "$KEYFILE"
 else
     SIG="$("$SIGN_UPDATE" "$ZIP")" # e.g. sparkle:edSignature="…" length="…"
 fi
