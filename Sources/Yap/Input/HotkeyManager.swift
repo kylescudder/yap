@@ -1,6 +1,6 @@
 import AppKit
 import CoreGraphics
-import IOKit.hid
+import ApplicationServices
 
 /// Global hotkeys via a `CGEventTap`. Watches a dictation binding (hold / double-tap-to-lock) and a
 /// Command Mode binding (hold). Modifier-only bindings are observed via `flagsChanged` and never
@@ -62,9 +62,10 @@ final class HotkeyManager {
     func start() {
         guard tap == nil else { return }
 
-        guard IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted else {
-            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-            Log.info("Input Monitoring not granted yet — requested; will re-arm once granted.")
+        // The active event tap is authorized by Accessibility. Create it only once that's
+        // granted (otherwise tapCreate can hand back a dead tap that never gets events).
+        guard AXIsProcessTrusted() else {
+            Log.info("Accessibility not granted yet — hotkey will arm once it is.")
             return
         }
 

@@ -54,10 +54,10 @@ final class DictationController {
             .sink { [weak self] key in self?.hotkey.setCommandKey(key) }
             .store(in: &cancellables)
 
-        // Arm the tap as soon as Input Monitoring is granted (fires with the current value too).
+        // Arm the tap as soon as Accessibility is granted (fires with the current value too).
         permissions.$statuses
             .sink { [weak self] statuses in
-                if statuses[.inputMonitoring] == .granted { self?.hotkey.start() }
+                if statuses[.accessibility] == .granted { self?.hotkey.start() }
             }
             .store(in: &cancellables)
     }

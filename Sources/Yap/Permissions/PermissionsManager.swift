@@ -57,9 +57,9 @@ final class PermissionsManager: ObservableObject {
         ]
     }
 
-    /// All three are needed: Microphone (capture), Input Monitoring (keyboard tap event
-    /// delivery), Accessibility (insert text into the focused field).
-    static let required: [PermissionKind] = [.microphone, .accessibility, .inputMonitoring]
+    /// Only two are needed: Microphone (capture) and Accessibility (which authorizes the
+    /// keyboard event tap AND inserting text). Input Monitoring is NOT required.
+    static let required: [PermissionKind] = [.microphone, .accessibility]
 
     var allRequiredGranted: Bool {
         Self.required.allSatisfy { statuses[$0] == .granted }
