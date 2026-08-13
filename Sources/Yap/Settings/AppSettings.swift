@@ -52,6 +52,10 @@ final class AppSettings: ObservableObject {
     @Published var duckLevel: Double {
         didSet { defaults.set(duckLevel, forKey: Keys.duckLevel) }
     }
+    /// Trim "please"/"thank you" at sentence boundaries, keeping them mid-sentence.
+    @Published var trimCourtesy: Bool {
+        didSet { defaults.set(trimCourtesy, forKey: Keys.trimCourtesy) }
+    }
 
     private enum Keys {
         static let intensity = "cleanupIntensity"
@@ -59,6 +63,7 @@ final class AppSettings: ObservableObject {
         static let commandKey = "commandKeyBinding"
         static let audioMode = "dictationAudioMode"
         static let duckLevel = "duckLevel"
+        static let trimCourtesy = "trimCourtesy"
     }
 
     private init() {
@@ -67,6 +72,7 @@ final class AppSettings: ObservableObject {
         commandKey = AppSettings.loadBinding(defaults, Keys.commandKey) ?? .commandDefault
         audioMode = DictationAudioMode(rawValue: defaults.string(forKey: Keys.audioMode) ?? "") ?? .pause
         duckLevel = defaults.object(forKey: Keys.duckLevel) as? Double ?? 0.15
+        trimCourtesy = defaults.object(forKey: Keys.trimCourtesy) as? Bool ?? true
     }
 
     private func saveBinding(_ binding: KeyBinding, _ key: String) {

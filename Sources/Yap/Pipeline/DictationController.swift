@@ -160,7 +160,7 @@ final class DictationController {
                 await MainActor.run {
                     self.processing = false
                     self.overlay.hide()
-                    let out = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let out = OutputPolisher.stripPreamble(result).trimmingCharacters(in: .whitespacesAndNewlines)
                     if !out.isEmpty { TextInserter.insert(out) }
                 }
             } catch {
@@ -194,11 +194,13 @@ final class DictationController {
                 await MainActor.run {
                     self.processing = false
                     self.overlay.hide()
-                    let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+                    var polished = OutputPolisher.stripPreamble(cleaned)
+                    if self.settings.trimCourtesy { polished = OutputPolisher.trimCourtesy(polished) }
+                    let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty {
                         Log.info("Empty transcript — nothing to insert.")
                     } else {
-                        let final = SnippetStore.shared.apply(to: cleaned)
+                        let final = SnippetStore.shared.apply(to: trimmed)
                         TextInserter.insert(final)
                         HistoryStore.shared.add(text: final, appName: ctx.appName)
                     }

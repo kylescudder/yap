@@ -103,6 +103,12 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                Divider()
+                Toggle("Trim courtesy words (please, thank you)", isOn: $settings.trimCourtesy)
+                Text("Drops “please”/“thank you” at the start or end of a sentence, or as a sentence on their own — but keeps them mid-sentence (e.g. “could you please review”).")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Permissions") {
