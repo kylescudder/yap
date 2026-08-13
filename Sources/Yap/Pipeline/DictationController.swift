@@ -12,6 +12,7 @@ final class DictationController {
     private let recorder = AudioRecorder()
     private let overlay = DictationOverlay()
     private let hotkey = HotkeyManager()
+    private let audio = AudioController()
 
     private let transcriber: Transcriber = WhisperKitTranscriber()
     private let cleaner: Cleaner = DictationController.makeCleaner()
@@ -76,10 +77,13 @@ final class DictationController {
 
     private func begin() {
         guard !recording, !processing else { return }
+        // Sample playback BEFORE the mic spins up the output device (else we'd always see "playing").
+        let wasPlaying = AudioController.isPlaying()
         do {
             try recorder.start()
             recording = true
             overlay.showRecording()
+            startAudioAction(wasPlaying: wasPlaying)
         } catch {
             Log.error("Audio start failed: \(error)")
             overlay.flash("Microphone unavailable")
@@ -91,7 +95,24 @@ final class DictationController {
         guard recording else { return }
         recording = false
         _ = recorder.stop()
+        endAudioAction()
         overlay.hide()
+    }
+
+    /// Pause or dip other audio (music, video…) while dictating, per the chosen mode. Does nothing
+    /// unless something was actually playing when dictation began.
+    private func startAudioAction(wasPlaying: Bool) {
+        guard wasPlaying else { return }
+        switch settings.audioMode {
+        case .off:   break
+        case .lower: audio.duck(to: Float(settings.duckLevel))
+        case .pause: audio.pause()
+        }
+    }
+
+    /// Undo `startAudioAction`. A no-op when nothing is active, so it's safe to always call.
+    private func endAudioAction() {
+        audio.restore()
     }
 
     // MARK: - Command Mode
@@ -99,12 +120,14 @@ final class DictationController {
     private func beginCommand() {
         guard !recording, !processing, !commandRecording else { return }
         capturedSelection = nil
+        let wasPlaying = AudioController.isPlaying()
         // Grab the current selection (⌘C) while the user speaks the instruction.
         SelectionReader.readSelection { [weak self] selection in self?.capturedSelection = selection }
         do {
             try recorder.start()
             commandRecording = true
             overlay.showCommand()
+            startAudioAction(wasPlaying: wasPlaying)
         } catch {
             Log.error("Command audio start failed: \(error)")
             overlay.flash("Microphone unavailable")
@@ -116,6 +139,7 @@ final class DictationController {
         commandRecording = false
 
         let audio = recorder.stop()
+        endAudioAction()
         let selection = capturedSelection
         processing = true
         overlay.showWorking("Working…")
@@ -151,6 +175,7 @@ final class DictationController {
         recording = false
 
         let audio = recorder.stop()
+        endAudioAction()   // music returns the moment you stop speaking
         // Capture the target app now (main thread; overlay is non-activating so focus is unchanged).
         let ctx = ContextCollector.collect()
         processing = true

@@ -1,6 +1,19 @@
 import Foundation
 import Combine
 
+/// What Yap does to other apps' audio while you dictate.
+enum DictationAudioMode: String, CaseIterable, Identifiable {
+    case off, lower, pause
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .off:   return "Do nothing"
+        case .lower: return "Lower volume"
+        case .pause: return "Pause playback"
+        }
+    }
+}
+
 enum CleanupIntensity: String, CaseIterable, Identifiable {
     case off, light, medium, high, max
     var id: String { rawValue }
@@ -31,17 +44,29 @@ final class AppSettings: ObservableObject {
     @Published var commandKey: KeyBinding {
         didSet { saveBinding(commandKey, Keys.commandKey) }
     }
+    /// What to do to other apps' audio while dictating.
+    @Published var audioMode: DictationAudioMode {
+        didSet { defaults.set(audioMode.rawValue, forKey: Keys.audioMode) }
+    }
+    /// Target output level while speaking, for `.lower` mode (0 = mute … 1 = unchanged).
+    @Published var duckLevel: Double {
+        didSet { defaults.set(duckLevel, forKey: Keys.duckLevel) }
+    }
 
     private enum Keys {
         static let intensity = "cleanupIntensity"
         static let pushToTalkKey = "pushToTalkKeyBinding"
         static let commandKey = "commandKeyBinding"
+        static let audioMode = "dictationAudioMode"
+        static let duckLevel = "duckLevel"
     }
 
     private init() {
         cleanupIntensity = CleanupIntensity(rawValue: defaults.string(forKey: Keys.intensity) ?? "") ?? .medium
         pushToTalkKey = AppSettings.loadBinding(defaults, Keys.pushToTalkKey) ?? .pushToTalkDefault
         commandKey = AppSettings.loadBinding(defaults, Keys.commandKey) ?? .commandDefault
+        audioMode = DictationAudioMode(rawValue: defaults.string(forKey: Keys.audioMode) ?? "") ?? .pause
+        duckLevel = defaults.object(forKey: Keys.duckLevel) as? Double ?? 0.15
     }
 
     private func saveBinding(_ binding: KeyBinding, _ key: String) {

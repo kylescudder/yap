@@ -7,6 +7,17 @@ struct SettingsView: View {
 
     private let ticker = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
+    private var audioModeHint: String {
+        switch settings.audioMode {
+        case .off:
+            return "Yap won't change your audio."
+        case .lower:
+            return "Yap dips the system volume while you speak, then restores it. Only when audio is actually playing."
+        case .pause:
+            return "Yap pauses whatever's playing when you start, and resumes it when you release. Only when audio is actually playing."
+        }
+    }
+
     var body: some View {
         Form {
             Section("Push-to-Talk") {
@@ -32,6 +43,34 @@ struct SettingsView: View {
                 }
                 Text("Hold and speak an instruction. Selected text is rewritten; otherwise text is generated at the cursor.")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Music & Audio") {
+                Picker("While dictating", selection: $settings.audioMode) {
+                    ForEach(DictationAudioMode.allCases) { Text($0.displayName).tag($0) }
+                }
+                if settings.audioMode == .lower {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Level while speaking")
+                            Spacer()
+                            Text(settings.duckLevel <= 0.001 ? "Mute" : "\(Int((settings.duckLevel * 100).rounded()))%")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $settings.duckLevel, in: 0...1, step: 0.05) {
+                            Text("Level")
+                        } minimumValueLabel: {
+                            Text("Mute").font(.caption2).foregroundStyle(.secondary)
+                        } maximumValueLabel: {
+                            Text("Full").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Text(audioModeHint)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
