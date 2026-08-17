@@ -26,7 +26,14 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Update build image
-        run: pacman -Syu --noconfirm git sudo
+        run: |
+          for attempt in 1 2 3; do
+            if pacman -Syyu --noconfirm git sudo; then
+              exit 0
+            fi
+            sleep "$((attempt * 10))"
+          done
+          exit 1
 
       - uses: actions/checkout@v4
 
