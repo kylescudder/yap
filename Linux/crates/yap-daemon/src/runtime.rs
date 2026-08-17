@@ -27,6 +27,7 @@ use crate::{PipelineRuntime, RuntimeError, model};
 
 const WHISPER_PORT: u16 = 19_401;
 const SERVER_START_TIMEOUT: Duration = Duration::from_secs(150);
+const INSERTION_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug)]
 pub struct RuntimePaths {
@@ -418,7 +419,7 @@ impl PipelineRuntime for LocalRuntime {
 }
 
 async fn insert_text(text: &str) -> Result<(), RuntimeError> {
-    let mut child = Command::new("wtype")
+    let child = Command::new("wtype")
         .args(["-d", "1", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -426,27 +427,38 @@ async fn insert_text(text: &str) -> Result<(), RuntimeError> {
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| RuntimeError(format!("could not start wtype: {error}")))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| RuntimeError("wtype stdin was not available".to_owned()))?;
-    stdin
-        .write_all(text.as_bytes())
-        .await
-        .map_err(|error| RuntimeError(format!("could not send text to wtype: {error}")))?;
-    stdin
-        .shutdown()
-        .await
-        .map_err(|error| RuntimeError(format!("could not finish wtype input: {error}")))?;
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| RuntimeError(format!("could not wait for wtype: {error}")))?;
+
+    let status = tokio::time::timeout(
+        INSERTION_TIMEOUT,
+        write_child_input_and_wait(child, text.as_bytes()),
+    )
+    .await
+    .map_err(|_| RuntimeError("wtype did not finish within ten seconds".to_owned()))??;
     if status.success() {
         Ok(())
     } else {
         Err(RuntimeError(format!("wtype failed with {status}")))
     }
+}
+
+async fn write_child_input_and_wait(
+    mut child: Child,
+    input: &[u8],
+) -> Result<std::process::ExitStatus, RuntimeError> {
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| RuntimeError("wtype stdin was not available".to_owned()))?;
+    stdin
+        .write_all(input)
+        .await
+        .map_err(|error| RuntimeError(format!("could not send text to wtype: {error}")))?;
+    drop(stdin);
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| RuntimeError(format!("could not wait for wtype: {error}")))?;
+    Ok(status)
 }
 
 fn secure_file(path: &Path) -> Result<File, RuntimeError> {
@@ -462,6 +474,28 @@ fn secure_file(path: &Path) -> Result<File, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn insertion_input_reaches_eof_before_waiting_for_child() {
+        let child = Command::new("sh")
+            .args(["-c", "cat >/dev/null"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("test reader starts");
+
+        let status = tokio::time::timeout(
+            Duration::from_secs(1),
+            write_child_input_and_wait(child, b"Yap"),
+        )
+        .await
+        .expect("stdin reaches EOF")
+        .expect("test reader can be awaited");
+
+        assert!(status.success());
+    }
 
     #[test]
     fn inference_response_parses_without_exposing_more_server_shape() {
