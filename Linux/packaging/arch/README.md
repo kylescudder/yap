@@ -7,7 +7,7 @@ user will see, without manually preparing dependencies for the disposable probe.
 From this directory:
 
 ```sh
-makepkg --syncdeps --install --clean --force --pfile PKGBUILD.dev
+makepkg -p PKGBUILD.dev --syncdeps --install --clean --force
 ```
 
 The development package installs the complete first dictation slice: the diagnostic/model/setup
