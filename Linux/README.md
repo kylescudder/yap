@@ -25,8 +25,10 @@ will not ship in the final package.
 For pre-release Arch testing, `packaging/arch/PKGBUILD.dev` builds the current checkout, installs
 `yap`, `yapd`, `yapctl`, D-Bus activation, and the per-user systemd unit, and declares all runtime
 dependencies for the target NVIDIA machine. `yap model install` performs the sole explicit network
-setup step and verifies the pinned model before use. `yap setup hyprland` backs up the main Lua
-configuration, installs the Right-Super edge bindings, starts the daemon, and reloads Hyprland.
+setup step and verifies the pinned model before use. `yap setup hyprland` starts the daemon and
+prints the press/release commands for user-owned Hyprland bindings. It does not choose or claim a
+hotkey. Development builds that installed the retired Right-Super binding are cleaned up safely,
+with the main Lua configuration backed up before its generated include is removed.
 
 The final AUR package will replace the checkout-based manifest with a checksummed release archive
 and split hardware acceleration choices cleanly so CPU-only systems do not require CUDA.

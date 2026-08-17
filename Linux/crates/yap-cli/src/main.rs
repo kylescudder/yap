@@ -42,7 +42,7 @@ enum ModelCommand {
 
 #[derive(Debug, Subcommand)]
 enum SetupCommand {
-    /// Back up and configure Hyprland Lua for Right-Super dictation.
+    /// Start Yap and show the commands for user-owned Hyprland bindings.
     Hyprland,
 }
 
@@ -92,15 +92,22 @@ async fn main() -> ExitCode {
             command: SetupCommand::Hyprland,
         } => match setup::hyprland().await {
             Ok(outcome) => {
-                println!(
-                    "Configured {} and included it from {}.",
-                    outcome.generated_config.display(),
-                    outcome.main_config.display()
-                );
+                println!("Yap's user service is enabled and running.");
                 if let Some(backup) = outcome.main_backup {
-                    println!("Backup: {}", backup.display());
+                    println!(
+                        "Removed the legacy Right-Super include. Backup: {}",
+                        backup.display()
+                    );
                 }
-                println!("Yap is running. Hold Right Super to dictate.");
+                if let Some(config) = outcome.removed_legacy_config {
+                    println!("Removed legacy generated binding: {}", config.display());
+                }
+                if let Some(config) = outcome.preserved_config {
+                    println!("Left user-owned config unchanged: {}", config.display());
+                }
+                println!("Yap leaves the hotkey choice to your Hyprland configuration.");
+                println!("Press edge:   yapctl press dictation");
+                println!("Release edge: yapctl release dictation");
                 ExitCode::SUCCESS
             }
             Err(error) => {

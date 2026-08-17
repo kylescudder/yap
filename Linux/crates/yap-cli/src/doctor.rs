@@ -213,7 +213,7 @@ impl<S: System> Doctor<S> {
                 "global_shortcuts",
                 CheckStatus::Warning,
                 "Global shortcuts",
-                "portal unavailable; the generated Hyprland binding remains usable".to_owned(),
+                "portal unavailable; user-configured Hyprland bindings remain usable".to_owned(),
             )
         }
     }
