@@ -1,0 +1,70 @@
+# Maintainer: Kyle Scudder
+
+pkgname=yap-dictation
+pkgver=0.0.11
+pkgrel=1
+pkgdesc='Local-first voice dictation for Wayland and Hyprland'
+arch=('x86_64')
+url='https://github.com/kylescudder/yap'
+license=('MIT')
+depends=(
+  'gcc-libs'
+  'ggml-cpu'
+  'glibc'
+  'pipewire-audio'
+  'systemd'
+  'whisper-cpp'
+  'wl-clipboard'
+  'wtype'
+)
+optdepends=('ggml-cuda: NVIDIA CUDA acceleration for local transcription')
+makedepends=('cargo')
+conflicts=('yap' 'yap-linux-dev')
+install=yap.install
+_commit='c3da0bb7cb9ddf0debc5749b3daf842a166a62bb'
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${_commit}.tar.gz")
+sha256sums=('733710b5e22e0ccaecf2eaa633b3d792f3fa2f5182a4aabb90be7922757993a9')
+
+prepare() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch \
+    --locked \
+    --manifest-path "$srcdir/yap-${_commit}/Linux/Cargo.toml"
+}
+
+build() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo build \
+    --frozen \
+    --release \
+    --manifest-path "$srcdir/yap-${_commit}/Linux/Cargo.toml" \
+    --workspace
+}
+
+check() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo test \
+    --frozen \
+    --manifest-path "$srcdir/yap-${_commit}/Linux/Cargo.toml" \
+    --workspace
+}
+
+package() {
+  local source_root="$srcdir/yap-${_commit}"
+
+  install -Dm755 "$srcdir/target/release/yap" "$pkgdir/usr/bin/yap"
+  install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
+  install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
+  install -Dm644 \
+    "$source_root/Linux/packaging/systemd/yap.service" \
+    "$pkgdir/usr/lib/systemd/user/yap.service"
+  install -Dm644 \
+    "$source_root/Linux/packaging/dbus/com.yap.Yap.service" \
+    "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"
+  install -Dm644 "$source_root/Linux/README.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$source_root/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

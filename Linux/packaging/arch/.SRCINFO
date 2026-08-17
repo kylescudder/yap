@@ -1,0 +1,24 @@
+pkgbase = yap-dictation
+	pkgdesc = Local-first voice dictation for Wayland and Hyprland
+	pkgver = 0.0.11
+	pkgrel = 1
+	url = https://github.com/kylescudder/yap
+	install = yap.install
+	arch = x86_64
+	license = MIT
+	makedepends = cargo
+	depends = gcc-libs
+	depends = ggml-cpu
+	depends = glibc
+	depends = pipewire-audio
+	depends = systemd
+	depends = whisper-cpp
+	depends = wl-clipboard
+	depends = wtype
+	optdepends = ggml-cuda: NVIDIA CUDA acceleration for local transcription
+	conflicts = yap
+	conflicts = yap-linux-dev
+	source = yap-dictation-0.0.11.tar.gz::https://github.com/kylescudder/yap/archive/c3da0bb7cb9ddf0debc5749b3daf842a166a62bb.tar.gz
+	sha256sums = 733710b5e22e0ccaecf2eaa633b3d792f3fa2f5182a4aabb90be7922757993a9
+
+pkgname = yap-dictation

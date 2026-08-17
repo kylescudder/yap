@@ -1,0 +1,59 @@
+name: Linux Arch package
+
+on:
+  pull_request:
+    paths:
+      - 'Linux/**'
+      - '.github/workflows/linux-arch-package.yml'
+  push:
+    paths:
+      - 'Linux/**'
+      - '.github/workflows/linux-arch-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Update build image
+        run: pacman -Syu --noconfirm git sudo
+
+      - uses: actions/checkout@v4
+
+      - name: Configure unprivileged package builder
+        run: |
+          useradd --create-home builder
+          printf 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman\n' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Verify AUR metadata
+        run: |
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          su builder --shell /bin/bash --command \
+            "cd '$package_dir' && makepkg --printsrcinfo" > /tmp/yap.SRCINFO
+          diff -u "$package_dir/.SRCINFO" /tmp/yap.SRCINFO
+
+      - name: Build and test package
+        run: |
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          su builder --shell /bin/bash --command \
+            "cd '$package_dir' && makepkg --syncdeps --noconfirm --cleanbuild --clean --force"
+
+      - name: Verify CPU base package
+        run: |
+          if pacman -Q ggml-cuda >/dev/null 2>&1; then
+            echo 'ggml-cuda must remain optional'
+            exit 1
+          fi
+          pacman -U --noconfirm \
+            "$GITHUB_WORKSPACE"/Linux/packaging/arch/yap-dictation-*.pkg.tar.zst
+          yap --version
+          yapctl --version
+          test -x /usr/bin/yapd
+          test -f /usr/lib/systemd/user/yap.service
+          test -f /usr/share/dbus-1/services/com.yap.Yap.service

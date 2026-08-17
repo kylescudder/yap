@@ -8,6 +8,11 @@ build/
 dist/
 DerivedData/
 /Linux/target/
+/Linux/packaging/arch/pkg/
+/Linux/packaging/arch/src/
+/Linux/packaging/arch/*.pkg.tar.*
+/Linux/packaging/arch/*.src.tar.*
+/Linux/packaging/arch/*.tar.gz
 
 # Models (downloaded at runtime, not committed)
 Models/
