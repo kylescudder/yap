@@ -7,6 +7,7 @@ Package.resolved
 build/
 dist/
 DerivedData/
+/Linux/target/
 
 # Models (downloaded at runtime, not committed)
 Models/

@@ -1,0 +1,63 @@
+# Maintainer: Yap contributors
+# DEVELOPMENT PACKAGE ONLY — builds the current checkout, not an AUR release source.
+
+pkgname=yap-linux-dev
+pkgver=0.0.11.r0.glocal
+pkgrel=1
+pkgdesc='Local-first voice dictation for Linux (development checkout)'
+arch=('x86_64')
+url='https://github.com/kylescudder/yap'
+license=('MIT')
+depends=(
+  'pipewire-audio'
+  'whisper-cpp'
+  'ggml-cuda'
+  'wtype'
+  'wl-clipboard'
+  'xdg-desktop-portal'
+  'xdg-desktop-portal-hyprland'
+  'curl'
+)
+makedepends=('cargo' 'git')
+provides=('yap')
+conflicts=('yap')
+source=()
+sha256sums=()
+
+_checkout="$(realpath "$startdir/../../..")"
+
+pkgver() {
+  local count revision
+  count="$(git -C "$_checkout" rev-list --count HEAD)"
+  revision="$(git -C "$_checkout" rev-parse --short HEAD)"
+  printf '0.0.11.r%s.g%s' "$count" "$revision"
+}
+
+build() {
+  CARGO_TARGET_DIR="$srcdir/target" \
+    cargo build \
+      --locked \
+      --release \
+      --manifest-path "$_checkout/Linux/Cargo.toml" \
+      --workspace
+}
+
+check() {
+  CARGO_TARGET_DIR="$srcdir/target" \
+    cargo test \
+      --locked \
+      --manifest-path "$_checkout/Linux/Cargo.toml"
+}
+
+package() {
+  install -Dm755 "$srcdir/target/release/yap" "$pkgdir/usr/bin/yap"
+  install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
+  install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/systemd/yap.service" \
+    "$pkgdir/usr/lib/systemd/user/yap.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/dbus/com.yap.Yap.service" \
+    "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"
+  install -Dm644 "$_checkout/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
