@@ -21,7 +21,7 @@ depends=(
 )
 makedepends=('cargo' 'git')
 provides=('yap')
-conflicts=('yap')
+conflicts=('yap' 'yap-dictation')
 source=()
 sha256sums=()
 

@@ -19,7 +19,7 @@ depends=(
 )
 optdepends=('ggml-cuda: NVIDIA CUDA acceleration for local transcription')
 makedepends=('cargo')
-conflicts=('yap' 'yap-linux-dev')
+conflicts=('yap' 'yap-linux-dev' 'yap-linux-dev-debug')
 install=yap.install
 _commit='c3da0bb7cb9ddf0debc5749b3daf842a166a62bb'
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${_commit}.tar.gz")

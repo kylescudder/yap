@@ -18,6 +18,7 @@ pkgbase = yap-dictation
 	optdepends = ggml-cuda: NVIDIA CUDA acceleration for local transcription
 	conflicts = yap
 	conflicts = yap-linux-dev
+	conflicts = yap-linux-dev-debug
 	source = yap-dictation-0.0.11.tar.gz::https://github.com/kylescudder/yap/archive/c3da0bb7cb9ddf0debc5749b3daf842a166a62bb.tar.gz
 	sha256sums = 733710b5e22e0ccaecf2eaa633b3d792f3fa2f5182a4aabb90be7922757993a9
 
