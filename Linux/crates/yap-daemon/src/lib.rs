@@ -8,7 +8,10 @@ use std::{fmt, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use thiserror::Error;
-use tokio::{sync::Mutex, time::Duration};
+use tokio::{
+    sync::{Mutex, watch},
+    time::Duration,
+};
 use yap_core::{Action, Effect, Event, Phase, SessionConfig, SessionMachine};
 
 pub mod dbus;
@@ -71,6 +74,7 @@ struct CoordinatorState {
 /// Owns a single user's dictation session and turns edges into platform work.
 pub struct Coordinator {
     state: Mutex<CoordinatorState>,
+    status_tx: watch::Sender<Status>,
     runtime: Arc<dyn PipelineRuntime>,
     clock: Arc<dyn Clock>,
 }
@@ -91,11 +95,17 @@ impl Coordinator {
 
     #[must_use]
     pub fn with_config(runtime: Arc<dyn PipelineRuntime>, config: SessionConfig) -> Arc<Self> {
+        let initial_status = Status {
+            phase: Phase::Idle,
+            last_error: None,
+        };
+        let (status_tx, _) = watch::channel(initial_status);
         Arc::new(Self {
             state: Mutex::new(CoordinatorState {
                 machine: SessionMachine::new(config),
                 last_error: None,
             }),
+            status_tx,
             runtime,
             clock: Arc::new(MonotonicClock::default()),
         })
@@ -131,10 +141,17 @@ impl Coordinator {
 
     pub async fn status(&self) -> Status {
         let state = self.state.lock().await;
-        Status {
-            phase: state.machine.phase(),
-            last_error: state.last_error.clone(),
-        }
+        status_from_state(&state)
+    }
+
+    /// Subscribes to the complete public session state.
+    ///
+    /// The receiver immediately contains the current status and then observes every durable state
+    /// change. Slow visual clients may coalesce intermediate updates, but always converge on the
+    /// newest status.
+    #[must_use]
+    pub fn subscribe(&self) -> watch::Receiver<Status> {
+        self.status_tx.subscribe()
     }
 
     async fn dispatch(self: &Arc<Self>, event: Event) -> Result<Status, RuntimeError> {
@@ -147,6 +164,7 @@ impl Coordinator {
                     if let Err(error) = self.runtime.start_capture(action).await {
                         state.last_error = Some(error.to_string());
                         state.machine.apply(Event::CaptureFailed);
+                        self.publish(&state);
                         return Err(error);
                     }
                     state.last_error = None;
@@ -154,6 +172,7 @@ impl Coordinator {
                 Effect::DiscardCapture => {
                     if let Err(error) = self.runtime.discard_capture().await {
                         state.last_error = Some(error.to_string());
+                        self.publish(&state);
                         return Err(error);
                     }
                 }
@@ -183,10 +202,9 @@ impl Coordinator {
             }
         }
 
-        Ok(Status {
-            phase: state.machine.phase(),
-            last_error: state.last_error.clone(),
-        })
+        let status = status_from_state(&state);
+        self.status_tx.send_replace(status.clone());
+        Ok(status)
     }
 
     async fn finish_pipeline(&self, result: Result<(), RuntimeError>) {
@@ -201,6 +219,7 @@ impl Coordinator {
                 state.machine.apply(Event::PipelineFailed);
             }
         }
+        self.publish(&state);
     }
 
     async fn expire_quick_tap(&self, generation: u64) {
@@ -211,6 +230,18 @@ impl Coordinator {
                 state.last_error = Some(error.to_string());
             }
         }
+        self.publish(&state);
+    }
+
+    fn publish(&self, state: &CoordinatorState) {
+        self.status_tx.send_replace(status_from_state(state));
+    }
+}
+
+fn status_from_state(state: &CoordinatorState) -> Status {
+    Status {
+        phase: state.machine.phase(),
+        last_error: state.last_error.clone(),
     }
 }
 
@@ -223,6 +254,22 @@ pub fn phase_name(phase: Phase) -> &'static str {
         Phase::AwaitingSecondTap => "awaiting-second-tap",
         Phase::Processing { .. } => "processing",
     }
+}
+
+#[must_use]
+pub fn action_name(phase: Phase) -> &'static str {
+    match phase {
+        Phase::Recording { action, .. } | Phase::Processing { action } => match action {
+            Action::Dictation => "dictation",
+            Action::Command => "command",
+        },
+        Phase::Idle | Phase::AwaitingSecondTap => "",
+    }
+}
+
+#[must_use]
+pub fn is_locked(phase: Phase) -> bool {
+    matches!(phase, Phase::Recording { locked: true, .. })
 }
 
 #[cfg(test)]
@@ -307,6 +354,7 @@ mod tests {
     #[tokio::test]
     async fn capture_failure_returns_to_idle_and_remains_observable() {
         let coordinator = Coordinator::new(Arc::new(FailingRuntime));
+        let mut statuses = coordinator.subscribe();
 
         let error = coordinator
             .edge(Action::Dictation, true)
@@ -316,5 +364,27 @@ mod tests {
 
         assert_eq!(status.phase, Phase::Idle);
         assert_eq!(status.last_error.as_deref(), Some(error.0.as_str()));
+        statuses.changed().await.expect("failure status is published");
+        assert_eq!(statuses.borrow().clone(), status);
+    }
+
+    #[tokio::test]
+    async fn subscribers_observe_recording_state() {
+        let coordinator = Coordinator::new(Arc::new(RecordingRuntime::default()));
+        let mut statuses = coordinator.subscribe();
+
+        coordinator
+            .edge(Action::Dictation, true)
+            .await
+            .expect("capture starts");
+
+        statuses.changed().await.expect("recording state is published");
+        assert_eq!(
+            statuses.borrow().phase,
+            Phase::Recording {
+                action: Action::Dictation,
+                locked: false,
+            }
+        );
     }
 }

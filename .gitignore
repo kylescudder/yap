@@ -13,6 +13,8 @@ DerivedData/
 /Linux/packaging/arch/*.pkg.tar.*
 /Linux/packaging/arch/*.src.tar.*
 /Linux/packaging/arch/*.tar.gz
+__pycache__/
+*.py[cod]
 
 # Models (downloaded at runtime, not committed)
 Models/

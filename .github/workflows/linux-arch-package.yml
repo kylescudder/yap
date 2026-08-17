@@ -28,7 +28,7 @@ jobs:
       - name: Update build image
         run: |
           for attempt in 1 2 3; do
-            if pacman -Syyu --noconfirm git sudo; then
+            if pacman -Syyu --noconfirm git sudo python; then
               exit 0
             fi
             sleep "$((attempt * 10))"
@@ -70,3 +70,8 @@ jobs:
           test -x /usr/bin/yapd
           test -f /usr/lib/systemd/user/yap.service
           test -f /usr/share/dbus-1/services/com.yap.Yap.service
+
+      - name: Verify current Linux source
+        run: |
+          cargo test --locked --manifest-path Linux/Cargo.toml --workspace
+          python Linux/ui/yap-overlay --self-test

@@ -9,7 +9,10 @@ arch=('x86_64')
 url='https://github.com/kylescudder/yap'
 license=('MIT')
 depends=(
+  'gtk4'
+  'gtk4-layer-shell'
   'pipewire-audio'
+  'python-gobject'
   'whisper-cpp'
   'ggml-cpu'
   'ggml-cuda'
@@ -54,9 +57,13 @@ package() {
   install -Dm755 "$srcdir/target/release/yap" "$pkgdir/usr/bin/yap"
   install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
   install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
+  install -Dm755 "$_checkout/Linux/ui/yap-overlay" "$pkgdir/usr/bin/yap-overlay"
   install -Dm644 \
     "$_checkout/Linux/packaging/systemd/yap.service" \
     "$pkgdir/usr/lib/systemd/user/yap.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/systemd/yap-overlay.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-overlay.service"
   install -Dm644 \
     "$_checkout/Linux/packaging/dbus/com.yap.Yap.service" \
     "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"

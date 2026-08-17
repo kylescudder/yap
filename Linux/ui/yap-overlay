@@ -1,0 +1,293 @@
+#!/usr/bin/python
+"""Wayland layer-shell indicator for Yap's daemon-owned session state."""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import ctypes.util
+import math
+import sys
+from dataclasses import dataclass
+
+
+BUS_NAME = "com.yap.Yap"
+OBJECT_PATH = "/com/yap/Yap/Dictation"
+INTERFACE_NAME = "com.yap.Yap.Dictation1"
+
+
+@dataclass(frozen=True)
+class VisualState:
+    visible: bool
+    mode: str
+    accessible_label: str
+
+
+def visual_state(phase: str, action: str, locked: bool, last_error: str) -> VisualState:
+    """Reduce daemon state to the deliberately small overlay interface."""
+    if last_error:
+        return VisualState(True, "error", "Yap needs attention")
+    if phase == "processing":
+        activity = "command" if action == "command" else "dictation"
+        return VisualState(True, "processing", f"Yap is processing {activity}")
+    if phase in {"recording", "recording-locked", "awaiting-second-tap"}:
+        activity = "command" if action == "command" else "dictation"
+        is_locked = locked or phase == "recording-locked"
+        suffix = ", hands-free" if is_locked else ""
+        return VisualState(True, "locked" if is_locked else "recording", f"Yap is recording {activity}{suffix}")
+    return VisualState(False, "idle", "Yap is idle")
+
+
+def self_test() -> int:
+    assert visual_state("idle", "", False, "") == VisualState(False, "idle", "Yap is idle")
+    assert visual_state("recording", "dictation", False, "").mode == "recording"
+    assert visual_state("recording-locked", "dictation", True, "").mode == "locked"
+    assert visual_state("processing", "command", False, "").accessible_label.endswith("command")
+    assert visual_state("idle", "", False, "microphone unavailable").mode == "error"
+    return 0
+
+
+def load_gi() -> tuple[object, object, object, object]:
+    library = ctypes.util.find_library("gtk4-layer-shell") or "libgtk4-layer-shell.so"
+    ctypes.CDLL(library, mode=ctypes.RTLD_GLOBAL)
+
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gtk4LayerShell", "1.0")
+    from gi.repository import Gio, GLib, Gtk, Gtk4LayerShell
+
+    return Gio, GLib, Gtk, Gtk4LayerShell
+
+
+CSS = b"""
+window.yap-overlay { background: transparent; }
+.yap-pill {
+  min-width: 126px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(24, 23, 21, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: 0 7px 22px rgba(0, 0, 0, 0.42);
+}
+.yap-dot {
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 999px;
+  background: #ffb020;
+  box-shadow: 0 0 7px rgba(255, 176, 32, 0.45);
+}
+.yap-pill.locked .yap-dot {
+  border: 2px solid rgba(255, 255, 255, 0.82);
+  margin: -2px;
+}
+.yap-pill.processing .yap-dot {
+  background: #8e8e93;
+  box-shadow: none;
+}
+.yap-pill.error .yap-dot {
+  background: #ff5a54;
+  box-shadow: 0 0 7px rgba(255, 90, 84, 0.45);
+}
+.yap-bar {
+  min-width: 3px;
+  border-radius: 999px;
+  background: #f4efe5;
+}
+.yap-pill.processing .yap-bar { background: #b5b3ad; }
+.yap-pill.error .yap-bar { background: #ff8a85; }
+"""
+
+
+class OverlayApplication:
+    def __init__(self, demo: bool = False) -> None:
+        self.Gio, self.GLib, self.Gtk, self.LayerShell = load_gi()
+        flags = self.Gio.ApplicationFlags.NON_UNIQUE if demo else self.Gio.ApplicationFlags.DEFAULT_FLAGS
+        self.application = self.Gtk.Application(application_id="com.yap.Yap.Overlay", flags=flags)
+        self.application.connect("activate", self._activate)
+        self.demo = demo
+        self.window = None
+        self.pill = None
+        self.dot = None
+        self.bars: list[object] = []
+        self.mode = "idle"
+        self.frame = 0
+        self.error_generation = 0
+        self.connection = None
+
+    def run(self) -> int:
+        return self.application.run(None)
+
+    def _activate(self, application: object) -> None:
+        if self.window is not None:
+            return
+
+        self.window = self.Gtk.Window(application=application)
+        self.window.add_css_class("yap-overlay")
+        self.window.set_decorated(False)
+        self.window.set_focusable(False)
+        self.window.set_resizable(False)
+        self.window.set_default_size(150, 30)
+        self.window.set_accessible_role(self.Gtk.AccessibleRole.STATUS)
+
+        self.LayerShell.init_for_window(self.window)
+        self.LayerShell.set_namespace(self.window, "yap-overlay")
+        self.LayerShell.set_layer(self.window, self.LayerShell.Layer.OVERLAY)
+        self.LayerShell.set_anchor(self.window, self.LayerShell.Edge.BOTTOM, True)
+        self.LayerShell.set_margin(self.window, self.LayerShell.Edge.BOTTOM, 54)
+        self.LayerShell.set_keyboard_mode(self.window, self.LayerShell.KeyboardMode.NONE)
+
+        provider = self.Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        self.Gtk.StyleContext.add_provider_for_display(
+            self.Gtk.Widget.get_display(self.window),
+            provider,
+            self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+        self.pill = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.pill.add_css_class("yap-pill")
+        self.pill.set_halign(self.Gtk.Align.CENTER)
+        self.pill.set_valign(self.Gtk.Align.CENTER)
+
+        self.dot = self.Gtk.Box()
+        self.dot.add_css_class("yap-dot")
+        self.dot.set_valign(self.Gtk.Align.CENTER)
+        self.pill.append(self.dot)
+
+        waveform = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=5)
+        waveform.set_valign(self.Gtk.Align.CENTER)
+        for height in (6, 11, 16, 11, 6):
+            bar = self.Gtk.Box()
+            bar.add_css_class("yap-bar")
+            bar.set_size_request(3, height)
+            bar.set_valign(self.Gtk.Align.CENTER)
+            waveform.append(bar)
+            self.bars.append(bar)
+        self.pill.append(waveform)
+        self.window.set_child(self.pill)
+
+        self.GLib.timeout_add(80, self._animate)
+        if self.demo:
+            self._start_demo()
+        else:
+            self._connect_daemon()
+
+    def _connect_daemon(self) -> None:
+        try:
+            self.connection = self.Gio.bus_get_sync(self.Gio.BusType.SESSION, None)
+            self.connection.signal_subscribe(
+                BUS_NAME,
+                INTERFACE_NAME,
+                "StateChanged",
+                OBJECT_PATH,
+                None,
+                self.Gio.DBusSignalFlags.NONE,
+                self._state_changed,
+            )
+            result = self.connection.call_sync(
+                BUS_NAME,
+                OBJECT_PATH,
+                INTERFACE_NAME,
+                "State",
+                None,
+                self.GLib.VariantType.new("(ssbs)"),
+                self.Gio.DBusCallFlags.NONE,
+                5_000,
+                None,
+            )
+            self._render(*result.unpack())
+        except Exception as error:  # PyGObject raises GLib.Error, unavailable before load_gi.
+            print(f"yap-overlay: could not reach Yap: {error}", file=sys.stderr)
+            self._render("idle", "", False, "daemon unavailable")
+
+    def _state_changed(
+        self,
+        _connection: object,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        _signal: str,
+        parameters: object,
+        *_user_data: object,
+    ) -> None:
+        self._render(*parameters.unpack())
+
+    def _render(self, phase: str, action: str, locked: bool, last_error: str) -> None:
+        visual = visual_state(phase, action, locked, last_error)
+        self.mode = visual.mode
+        self.window.update_property(
+            [self.Gtk.AccessibleProperty.LABEL],
+            [visual.accessible_label],
+        )
+        for name in ("recording", "locked", "processing", "error"):
+            self.pill.remove_css_class(name)
+        self.pill.add_css_class(visual.mode)
+
+        self.error_generation += 1
+        if not visual.visible:
+            self.window.set_visible(False)
+            return
+
+        self.window.present()
+        if visual.mode == "error":
+            generation = self.error_generation
+
+            def hide_stale_error() -> bool:
+                if generation == self.error_generation and self.mode == "error":
+                    self.window.set_visible(False)
+                return self.GLib.SOURCE_REMOVE
+
+            self.GLib.timeout_add_seconds(3, hide_stale_error)
+
+    def _animate(self) -> bool:
+        self.frame += 1
+        if self.mode in {"recording", "locked"}:
+            heights = [5 + int(11 * abs(math.sin(self.frame * 0.24 + index * 0.78))) for index in range(5)]
+        elif self.mode == "processing":
+            heights = [5 + (10 if (self.frame // 2) % 5 == index else 3) for index in range(5)]
+        elif self.mode == "error":
+            heights = [5, 8, 13, 8, 5]
+        else:
+            heights = [5] * 5
+        for bar, height in zip(self.bars, heights, strict=True):
+            bar.set_size_request(3, height)
+        return self.GLib.SOURCE_CONTINUE
+
+    def _start_demo(self) -> None:
+        states = [
+            ("recording", "dictation", False, ""),
+            ("recording-locked", "dictation", True, ""),
+            ("processing", "dictation", False, ""),
+            ("idle", "", False, "demo error"),
+            ("idle", "", False, ""),
+        ]
+        index = 0
+
+        def advance() -> bool:
+            nonlocal index
+            self._render(*states[index])
+            index = (index + 1) % len(states)
+            return self.GLib.SOURCE_CONTINUE
+
+        advance()
+        self.GLib.timeout_add_seconds(2, advance)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Show Yap's Wayland dictation indicator")
+    parser.add_argument("--demo", action="store_true", help="cycle through visual states without the daemon")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    if args.self_test:
+        return self_test()
+    return OverlayApplication(demo=args.demo).run()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -26,6 +26,12 @@ pub async fn hyprland() -> Result<SetupOutcome, String> {
     run("systemctl", &["--user", "enable", "--now", "yap.service"])
         .await
         .map_err(|error| format!("yap.service did not start: {error}"))?;
+    run(
+        "systemctl",
+        &["--user", "enable", "--now", "yap-overlay.service"],
+    )
+    .await
+    .map_err(|error| format!("yap-overlay.service did not start: {error}"))?;
 
     let cleanup = remove_legacy_binding(&config_home().join("hypr"))?;
     if cleanup.main_backup.is_some() {

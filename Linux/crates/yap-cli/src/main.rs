@@ -92,7 +92,7 @@ async fn main() -> ExitCode {
             command: SetupCommand::Hyprland,
         } => match setup::hyprland().await {
             Ok(outcome) => {
-                println!("Yap's user service is enabled and running.");
+                println!("Yap's daemon and visual indicator are enabled and running.");
                 if let Some(backup) = outcome.main_backup {
                     println!(
                         "Removed the legacy Right-Super include. Backup: {}",
