@@ -20,10 +20,10 @@ yap doctor
 yap setup hyprland
 ```
 
-`whisper-cpp`, the `ggml-cuda` backend, PipeWire audio tools, `wtype`, `wl-clipboard`, and the
-Hyprland portal backend are hard dependencies in this development package because its first
-hardware target is the validated RTX 3080 machine. The eventual release packaging will split CUDA
-from the CPU-fallback base package.
+`whisper-cpp`, its required `ggml-cpu` backend, the `ggml-cuda` accelerator, PipeWire audio tools,
+`wtype`, `wl-clipboard`, and the Hyprland portal backend are hard dependencies in this development
+package because its first hardware target is the validated RTX 3080 machine. The eventual release
+packaging will split CUDA from the CPU-fallback base package.
 
 `PKGBUILD.dev` is intentionally not an AUR submission: it reads the current checkout. The eventual
 AUR `PKGBUILD` will build an immutable versioned release archive with a pinned checksum.

@@ -11,6 +11,7 @@ license=('MIT')
 depends=(
   'pipewire-audio'
   'whisper-cpp'
+  'ggml-cpu'
   'ggml-cuda'
   'wtype'
   'wl-clipboard'

@@ -103,7 +103,7 @@ doctor() {
         nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null || true
     fi
     if command -v pacman >/dev/null 2>&1; then
-        pacman -Q whisper-cpp ggml-cuda pipewire-audio wtype wl-clipboard 2>/dev/null || true
+        pacman -Q whisper-cpp ggml-cpu ggml-cuda pipewire-audio wtype wl-clipboard 2>/dev/null || true
     fi
 
     if command -v busctl >/dev/null 2>&1 && busctl --user introspect \
@@ -118,7 +118,7 @@ doctor() {
     if ((${#missing[@]})); then
         record_result "dependencies" "FAIL" "Missing: ${missing[*]}"
         printf '\nInstall the probe dependencies, then rerun:\n\n'
-        printf '  sudo pacman -S --needed pipewire-audio whisper-cpp ggml-cuda wtype wl-clipboard curl python\n'
+        printf '  sudo pacman -S --needed pipewire-audio whisper-cpp ggml-cpu ggml-cuda wtype wl-clipboard curl python\n'
         return 1
     fi
 
@@ -387,7 +387,6 @@ start_server() {
         --language auto \
         --host 127.0.0.1 \
         --port "$port" \
-        --no-context \
         --no-timestamps \
         >"$SERVER_LOG" 2>&1 &
     SERVER_PID=$!

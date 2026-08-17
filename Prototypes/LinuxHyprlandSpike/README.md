@@ -32,7 +32,7 @@ the confirmed model download.
 If dependencies are missing, install them yourself and rerun:
 
 ```sh
-sudo pacman -S --needed pipewire-audio whisper-cpp ggml-cuda wtype wl-clipboard curl python
+sudo pacman -S --needed pipewire-audio whisper-cpp ggml-cpu ggml-cuda wtype wl-clipboard curl python
 ```
 
 The model is stored separately under `${XDG_DATA_HOME:-$HOME/.local/share}/yap-prototype/models` and

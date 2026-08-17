@@ -236,21 +236,31 @@ impl<S: System> Doctor<S> {
     }
 
     fn transcriber(&self) -> Check {
-        if self.system.command_exists("whisper-server") {
-            check(
-                "transcriber",
-                CheckStatus::Pass,
-                "Transcription runtime",
-                "whisper.cpp runtime is installed".to_owned(),
-            )
-        } else {
-            check(
+        if !self.system.command_exists("whisper-server") {
+            return check(
                 "transcriber",
                 CheckStatus::Blocked,
                 "Transcription runtime",
                 "whisper.cpp runtime is missing; reinstall the Yap package dependencies".to_owned(),
-            )
+            );
         }
+
+        if self.system.run("pacman", &["-Q", "ggml-cpu"]).is_err() {
+            return check(
+                "transcriber",
+                CheckStatus::Blocked,
+                "Transcription runtime",
+                "ggml-cpu is missing; whisper.cpp requires the CPU backend even when CUDA is enabled"
+                    .to_owned(),
+            );
+        }
+
+        check(
+            "transcriber",
+            CheckStatus::Pass,
+            "Transcription runtime",
+            "whisper.cpp runtime and required CPU backend are installed".to_owned(),
+        )
     }
 
     fn insertion(&self) -> Check {
@@ -406,7 +416,14 @@ mod tests {
                     ("wl-copy".to_owned(), Ok(String::new())),
                     ("wl-paste".to_owned(), Ok(String::new())),
                     ("nvidia-smi".to_owned(), Ok("RTX 3080".to_owned())),
-                    ("pacman".to_owned(), Ok("ggml-cuda 0.20.0".to_owned())),
+                    (
+                        "pacman -Q ggml-cpu".to_owned(),
+                        Ok("ggml-cpu 0.20.0".to_owned()),
+                    ),
+                    (
+                        "pacman -Q ggml-cuda".to_owned(),
+                        Ok("ggml-cuda 0.20.0".to_owned()),
+                    ),
                 ]),
                 paths: Vec::new(),
             }
@@ -426,9 +443,11 @@ mod tests {
             self.commands.contains_key(name)
         }
 
-        fn run(&self, name: &str, _args: &[&str]) -> Result<String, String> {
+        fn run(&self, name: &str, args: &[&str]) -> Result<String, String> {
+            let invocation = format!("{name} {}", args.join(" "));
             self.commands
-                .get(name)
+                .get(&invocation)
+                .or_else(|| self.commands.get(name))
                 .cloned()
                 .unwrap_or_else(|| Err(format!("{name} missing")))
         }
@@ -457,6 +476,22 @@ mod tests {
             .insert("pw-cli".to_owned(), Err("connection refused".to_owned()));
         let report = Doctor::new(system).run();
         assert_eq!(report.compatibility, Compatibility::Blocked);
+    }
+
+    #[test]
+    fn missing_cpu_backend_blocks_transcription_even_with_cuda() {
+        let mut system = FakeSystem::compatible();
+        system.commands.remove("pacman -Q ggml-cpu");
+
+        let report = Doctor::new(system).run();
+        let transcriber = report
+            .checks
+            .iter()
+            .find(|check| check.id == "transcriber")
+            .unwrap();
+
+        assert_eq!(report.compatibility, Compatibility::Blocked);
+        assert_eq!(transcriber.status, CheckStatus::Blocked);
     }
 
     #[test]
