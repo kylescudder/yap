@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Yap
+GenericName=Voice Dictation
+Comment=Local-first voice dictation
+Exec=yap-ui
+Icon=com.yap.Yap
+Terminal=false
+Categories=Utility;Accessibility;
+StartupNotify=true
+StartupWMClass=com.yap.Yap.Dashboard
+Keywords=dictation;speech;voice;transcription;

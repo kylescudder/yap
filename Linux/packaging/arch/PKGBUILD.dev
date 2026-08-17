@@ -11,6 +11,7 @@ license=('MIT')
 depends=(
   'gtk4'
   'gtk4-layer-shell'
+  'hicolor-icon-theme'
   'pipewire-audio'
   'python-gobject'
   'whisper-cpp'
@@ -59,6 +60,7 @@ package() {
   install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
   install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
   install -Dm755 "$_checkout/Linux/ui/yap-overlay" "$pkgdir/usr/bin/yap-overlay"
+  install -Dm755 "$_checkout/Linux/ui/yap-ui" "$pkgdir/usr/bin/yap-ui"
   install -Dm644 \
     "$_checkout/Linux/packaging/systemd/yap.service" \
     "$pkgdir/usr/lib/systemd/user/yap.service"
@@ -68,5 +70,11 @@ package() {
   install -Dm644 \
     "$_checkout/Linux/packaging/dbus/com.yap.Yap.service" \
     "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/desktop/com.yap.Yap.Dashboard.desktop" \
+    "$pkgdir/usr/share/applications/com.yap.Yap.Dashboard.desktop"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/icons/com.yap.Yap.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg"
   install -Dm644 "$_checkout/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

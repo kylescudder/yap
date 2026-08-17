@@ -16,6 +16,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Open Yap's Linux desktop dashboard.
+    Gui,
     /// Check whether this Linux session can run Yap and which capabilities will degrade.
     Doctor {
         /// Emit a stable JSON report for bug reports and package verification.
@@ -50,6 +52,13 @@ enum SetupCommand {
 async fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
+        Command::Gui => match tokio::process::Command::new("yap-ui").spawn() {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("yap: could not open the desktop dashboard: {error}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Doctor { json } => {
             let report = Doctor::new(RealSystem).run();
             if json {
@@ -108,6 +117,7 @@ async fn main() -> ExitCode {
                 println!("Yap leaves the hotkey choice to your Hyprland configuration.");
                 println!("Press edge:   yapctl press dictation");
                 println!("Release edge: yapctl release dictation");
+                println!("Dashboard:    yap gui");
                 ExitCode::SUCCESS
             }
             Err(error) => {
