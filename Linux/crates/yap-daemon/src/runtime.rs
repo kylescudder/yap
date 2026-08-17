@@ -1,6 +1,7 @@
 //! Linux process adapters for capture, local transcription, and Wayland insertion.
 
 use std::{
+    ffi::OsString,
     fs::{File, OpenOptions, Permissions},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -168,18 +169,7 @@ impl WhisperEngine {
             .map_err(|error| RuntimeError(format!("could not open Whisper log: {error}")))?;
         let mut command = Command::new("whisper-server");
         command
-            .arg("--model")
-            .arg(&self.model)
-            .args([
-                "--language",
-                "auto",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                &WHISPER_PORT.to_string(),
-                "--no-context",
-                "--no-timestamps",
-            ])
+            .args(whisper_server_arguments(&self.model))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(stderr))
@@ -236,6 +226,21 @@ impl WhisperEngine {
             .await
             .is_ok_and(|response| response.status().is_success())
     }
+}
+
+fn whisper_server_arguments(model: &Path) -> Vec<OsString> {
+    [
+        OsString::from("--model"),
+        model.as_os_str().to_owned(),
+        OsString::from("--language"),
+        OsString::from("auto"),
+        OsString::from("--host"),
+        OsString::from("127.0.0.1"),
+        OsString::from("--port"),
+        OsString::from(WHISPER_PORT.to_string()),
+        OsString::from("--no-timestamps"),
+    ]
+    .into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -463,5 +468,25 @@ mod tests {
         let response: InferenceResponse =
             serde_json::from_str(r#"{"text":" hello from Yap "}"#).expect("valid response");
         assert_eq!(response.text.trim(), "hello from Yap");
+    }
+
+    #[test]
+    fn arch_whisper_server_arguments_exclude_removed_no_context_flag() {
+        let arguments = whisper_server_arguments(Path::new("/model.bin"));
+        assert_eq!(
+            arguments,
+            [
+                "--model",
+                "/model.bin",
+                "--language",
+                "auto",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "19401",
+                "--no-timestamps",
+            ]
+            .map(OsString::from)
+        );
     }
 }
