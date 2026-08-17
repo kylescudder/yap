@@ -6,6 +6,8 @@ on:
       - 'Linux/**'
       - '.github/workflows/linux-arch-package.yml'
   push:
+    branches:
+      - main
     paths:
       - 'Linux/**'
       - '.github/workflows/linux-arch-package.yml'
@@ -13,6 +15,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: linux-arch-package-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   package:
