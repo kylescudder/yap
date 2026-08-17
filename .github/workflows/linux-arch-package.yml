@@ -76,5 +76,6 @@ jobs:
 
       - name: Verify current Linux source
         run: |
+          grep -Fx "options=('!debug')" Linux/packaging/arch/PKGBUILD.dev
           cargo test --locked --manifest-path Linux/Cargo.toml --workspace
           python Linux/ui/yap-overlay --self-test

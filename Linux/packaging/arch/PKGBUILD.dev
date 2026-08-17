@@ -25,6 +25,7 @@ depends=(
 makedepends=('cargo' 'git')
 provides=('yap')
 conflicts=('yap' 'yap-dictation')
+options=('!debug')
 source=()
 sha256sums=()
 
