@@ -39,7 +39,7 @@ platform has a better native convention.
 | Permissions and health | Onboarding/settings | `yap doctor` complete | Surface actionable health in the GUI without recording content |
 | Model lifecycle | First-run download | Implemented; full download validation pending | GUI install/progress, verification, recovery, and disk-use visibility |
 | Privacy | Local-only | Implemented; final audit pending | Cleanup and commands local; audit logs/reports for captured content |
-| Packaging | Signed app/DMG | Production manifest update pending | Clean install, upgrade, uninstall, CPU-only, and NVIDIA validation |
+| Packaging | Signed app/DMG | Production manifest complete; package lifecycle covered in CI | Clean install, upgrade, uninstall, CPU-only, and NVIDIA validation |
 | Updates | Sparkle | Intentional difference | Document `pacman`/AUR-helper updates |
 | User documentation | Complete | Draft complete; clean-system walkthrough pending | Linux install, setup, usage, privacy, troubleshooting, update, and uninstall guide |
 
