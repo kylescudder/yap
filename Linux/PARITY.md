@@ -27,7 +27,7 @@ platform has a better native convention.
 | Recording overlay | Live waveform pill | State-driven pill complete | Non-focus-stealing recording, locked, processing, and error states |
 | Live microphone level | Complete | Implemented; hardware validation pending | Drive the recording waveform from captured audio levels |
 | Tray/menu application | Complete | Implemented; desktop validation pending | Open status, settings, history, snippets, diagnostics, and quit/restart actions |
-| First-run onboarding | Complete | Implemented; clean-install validation pending | GUI health/setup flow with model and binding guidance |
+| First-run onboarding | Complete | Implemented; isolated clean-XDG model and health flow validated on Arch/Hyprland | GUI health/setup flow with model and binding guidance |
 | Settings | Complete | Implemented | Persist and edit all portable preferences |
 | Command Mode | Complete | Implemented; end-to-end validation pending | Local instruction processing, selection capture, and replacement |
 | Context-aware cleanup | Apple Foundation Models | Implemented with local Qwen3; quality validation pending | Fully local Linux model with equivalent cleanup levels and fallback behavior |
@@ -37,7 +37,7 @@ platform has a better native convention.
 | Dictation history | Complete | Implemented | Local capped history, clear/copy actions, and GUI |
 | Audio handling | Off/lower/pause | Implemented; playback validation pending | PipeWire-native off/lower/pause behavior with reliable restoration |
 | Permissions and health | Onboarding/settings | `yap doctor` complete | Surface actionable health in the GUI without recording content |
-| Model lifecycle | First-run download | Implemented; full download validation pending | GUI install/progress, verification, recovery, and disk-use visibility |
+| Model lifecycle | First-run download | Fresh download and corrupt-model repair validated on Arch; GUI progress pending | GUI install/progress, verification, recovery, and disk-use visibility |
 | Privacy | Local-only | Implemented; final audit pending | Cleanup and commands local; audit logs/reports for captured content |
 | Packaging | Signed app/DMG | Production manifest complete; package lifecycle covered in CI | Clean install, upgrade, uninstall, CPU-only, and NVIDIA validation |
 | Updates | Sparkle | Intentional difference | Document `pacman`/AUR-helper updates |
