@@ -33,9 +33,9 @@ makedepends=('cargo')
 conflicts=('yap' 'yap-linux-dev' 'yap-linux-dev-debug')
 options=('!debug')
 install=yap.install
-_commit='c0e9e3920e5fcf23b9bd41f0eadae8709eeeaf69'
+_commit='be02a8efebdae204115caa4b4cd5d23161a00f39'
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${_commit}.tar.gz")
-sha256sums=('c05aa8a5cb6f2bbf4222d26fafbab86dfa6d9fff85b96cca4347a799c41ff502')
+sha256sums=('80d0b15ea91422a04b7a79aa4e662c4bba1230df93404c544246fa84d6844011')
 
 prepare() {
   export CARGO_HOME="$srcdir/cargo-home"
