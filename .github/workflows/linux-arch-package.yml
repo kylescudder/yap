@@ -71,8 +71,15 @@ jobs:
           yap --version
           yapctl --version
           test -x /usr/bin/yapd
+          test -x /usr/bin/yap-overlay
+          test -x /usr/bin/yap-ui
+          test -x /usr/bin/yap-tray
           test -f /usr/lib/systemd/user/yap.service
+          test -f /usr/lib/systemd/user/yap-overlay.service
+          test -f /usr/lib/systemd/user/yap-tray.service
           test -f /usr/share/dbus-1/services/com.yap.Yap.service
+          test -f /usr/share/applications/com.yap.Yap.Dashboard.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg
 
       - name: Verify current Linux source
         run: |

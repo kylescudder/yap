@@ -8,22 +8,35 @@ arch=('x86_64')
 url='https://github.com/kylescudder/yap'
 license=('MIT')
 depends=(
+  'curl'
   'gcc-libs'
   'ggml-cpu'
   'glibc'
+  'gtk4'
+  'gtk4-layer-shell'
+  'hicolor-icon-theme'
+  'libayatana-appindicator'
+  'llama-cpp'
   'pipewire-audio'
+  'python'
+  'python-gobject'
   'systemd'
   'whisper-cpp'
+  'wireplumber'
   'wl-clipboard'
   'wtype'
+  'xdg-desktop-portal'
+  'xdg-desktop-portal-hyprland'
 )
-optdepends=('ggml-cuda: NVIDIA CUDA acceleration for local transcription')
+optdepends=('ggml-cuda: NVIDIA CUDA acceleration for both local models')
 makedepends=('cargo')
+provides=('yap')
 conflicts=('yap' 'yap-linux-dev' 'yap-linux-dev-debug')
+options=('!debug')
 install=yap.install
-_commit='c3da0bb7cb9ddf0debc5749b3daf842a166a62bb'
+_commit='5ddfb6f6f279ecb16e813db93eaeb1f295ee7cbd'
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${_commit}.tar.gz")
-sha256sums=('733710b5e22e0ccaecf2eaa633b3d792f3fa2f5182a4aabb90be7922757993a9')
+sha256sums=('0bd34e3c40b4d8aa2e0764a8fc9225538bcc932b0fac1e39915f0b568729dbc6')
 
 prepare() {
   export CARGO_HOME="$srcdir/cargo-home"
@@ -57,13 +70,28 @@ package() {
   install -Dm755 "$srcdir/target/release/yap" "$pkgdir/usr/bin/yap"
   install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
   install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
+  install -Dm755 "$source_root/Linux/ui/yap-overlay" "$pkgdir/usr/bin/yap-overlay"
+  install -Dm755 "$source_root/Linux/ui/yap-ui" "$pkgdir/usr/bin/yap-ui"
+  install -Dm755 "$source_root/Linux/ui/yap-tray" "$pkgdir/usr/bin/yap-tray"
   install -Dm644 \
     "$source_root/Linux/packaging/systemd/yap.service" \
     "$pkgdir/usr/lib/systemd/user/yap.service"
   install -Dm644 \
+    "$source_root/Linux/packaging/systemd/yap-overlay.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-overlay.service"
+  install -Dm644 \
+    "$source_root/Linux/packaging/systemd/yap-tray.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-tray.service"
+  install -Dm644 \
     "$source_root/Linux/packaging/dbus/com.yap.Yap.service" \
     "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"
-  install -Dm644 "$source_root/Linux/README.md" \
+  install -Dm644 \
+    "$source_root/Linux/packaging/desktop/com.yap.Yap.Dashboard.desktop" \
+    "$pkgdir/usr/share/applications/com.yap.Yap.Dashboard.desktop"
+  install -Dm644 \
+    "$source_root/Linux/packaging/icons/com.yap.Yap.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg"
+  install -Dm644 "$source_root/README.md" \
     "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 "$source_root/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
