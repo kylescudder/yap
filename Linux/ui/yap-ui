@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import subprocess
 import sys
@@ -40,6 +41,62 @@ class DoctorView:
         return cls(compatibility, checks)
 
 
+@dataclass(frozen=True)
+class SettingsView:
+    cleanup_intensity: str
+    audio_mode: str
+    duck_level: float
+    trim_courtesy: bool
+
+
+@dataclass(frozen=True)
+class SnippetView:
+    id: int
+    trigger: str
+    expansion: str
+
+
+@dataclass(frozen=True)
+class HistoryView:
+    id: int
+    text: str
+    app_name: str | None
+    created_unix_ms: int
+
+
+@dataclass(frozen=True)
+class DataView:
+    settings: SettingsView
+    snippets: tuple[SnippetView, ...]
+    history: tuple[HistoryView, ...]
+
+    @classmethod
+    def parse(cls, raw: str) -> "DataView":
+        document = json.loads(raw)
+        settings = document["settings"]
+        return cls(
+            settings=SettingsView(
+                cleanup_intensity=str(settings["cleanup_intensity"]),
+                audio_mode=str(settings["audio_mode"]),
+                duck_level=float(settings["duck_level"]),
+                trim_courtesy=bool(settings["trim_courtesy"]),
+            ),
+            snippets=tuple(
+                SnippetView(int(item["id"]), str(item["trigger"]), str(item["expansion"]))
+                for item in document["snippets"]
+            ),
+            history=tuple(
+                HistoryView(
+                    int(item["id"]),
+                    str(item["text"]),
+                    str(item["app_name"]) if item["app_name"] is not None else None,
+                    int(item["created_unix_ms"]),
+                )
+                for item in document["history"]
+            ),
+        )
+
+
 def self_test() -> int:
     assert APPLICATION_ID != BUS_NAME
     report = DoctorView.parse(
@@ -49,6 +106,15 @@ def self_test() -> int:
     )
     assert report.compatibility == "ready"
     assert report.checks == (CheckView("pass", "Transcription model", "verified"),)
+    data = DataView.parse(
+        '{"version":1,"settings":{"cleanup_intensity":"high","audio_mode":"lower",'
+        '"duck_level":0.25,"trim_courtesy":true},"snippets":[{"id":4,"trigger":'
+        '"my address","expansion":"42 Yap Street"}],"history":[{"id":5,"text":'
+        '"Hello","app_name":"Zed","created_unix_ms":1234}]}'
+    )
+    assert data.settings == SettingsView("high", "lower", 0.25, True)
+    assert data.snippets == (SnippetView(4, "my address", "42 Yap Street"),)
+    assert data.history == (HistoryView(5, "Hello", "Zed", 1234),)
     return 0
 
 
@@ -119,6 +185,19 @@ window.yap-dashboard { background: #171614; color: #f4efe5; }
 .code-row { padding: 10px 12px; border-radius: 10px; background: #191816; }
 .code { font-family: "Iosevka Term", "JetBrains Mono", monospace; color: #d8d1c5; font-size: 11px; }
 .future-mark { color: #ffb020; font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+.setting-row { padding: 12px 4px; border-bottom: 1px solid rgba(255,255,255,0.055); }
+.setting-name { font-weight: 650; }
+.setting-hint { color: #817e77; font-size: 11px; }
+.field-label { color: #aaa69d; font-size: 11px; font-weight: 650; }
+.form-field { padding: 8px 10px; border-radius: 9px; background: #191816; color: #f4efe5; border: 1px solid rgba(255,255,255,0.09); }
+.item-row { padding: 14px; border-radius: 12px; background: #22211e; border: 1px solid rgba(255,255,255,0.07); }
+.item-title { font-weight: 700; }
+.item-meta { color: #817e77; font-size: 10px; letter-spacing: 0.4px; }
+.item-body { color: #d8d1c5; }
+.empty-state { padding: 30px; border-radius: 14px; background: #201f1c; color: #817e77; }
+.danger { background: rgba(255,90,84,0.10); color: #ff827d; border: 1px solid rgba(255,90,84,0.18); padding: 9px 14px; border-radius: 10px; }
+.save-note { color: #7ed6a2; font-size: 11px; }
+.save-note.error { color: #ff827d; }
 """
 
 
@@ -138,6 +217,21 @@ class Dashboard:
         self.refresh_button = None
         self.model_button = None
         self.connection = None
+        self.data: DataView | None = None
+        self.cleanup_combo = None
+        self.audio_combo = None
+        self.duck_scale = None
+        self.courtesy_switch = None
+        self.settings_note = None
+        self.history_box = None
+        self.history_count = None
+        self.snippets_box = None
+        self.snippet_trigger = None
+        self.snippet_expansion = None
+        self.snippet_save_button = None
+        self.snippet_cancel_button = None
+        self.snippet_note = None
+        self.editing_snippet_id = 0
 
     def run(self) -> int:
         return self.application.run(None)
@@ -167,9 +261,9 @@ class Dashboard:
         self.stack.set_hexpand(True)
         self.stack.set_vexpand(True)
         self.stack.add_named(self._overview_page(), "overview")
-        self.stack.add_named(self._hotkeys_page(), "settings")
-        self.stack.add_named(self._future_page("History", "Local dictation history", "The daemon-backed history store is the next persistence slice."), "history")
-        self.stack.add_named(self._future_page("Snippets", "Speak less. Insert more.", "Snippet storage and expansion will land with the shared persistence module."), "snippets")
+        self.stack.add_named(self._settings_page(), "settings")
+        self.stack.add_named(self._history_page(), "history")
+        self.stack.add_named(self._snippets_page(), "snippets")
         shell.append(self.stack)
         self.window.set_child(shell)
         self.window.present()
@@ -287,30 +381,84 @@ class Dashboard:
         page.append(self.model_button)
         return page
 
-    def _hotkeys_page(self) -> object:
+    def _settings_page(self) -> object:
         page = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=22)
         page.add_css_class("content")
-        page.append(self._page_header("SETTINGS", "Compositor-owned by design.", "Yap never rewrites your Hyprland configuration or claims a modifier."))
+        page.append(self._page_header("SETTINGS", "Tune the local pipeline.", "Portable preferences live in Yap's private daemon store. Hotkeys remain compositor-owned."))
+
+        preferences = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=0)
+        preferences.add_css_class("card")
+        preference_title = self.Gtk.Label(label="Dictation behavior", xalign=0)
+        preference_title.add_css_class("section-title")
+        preference_title.set_margin_bottom(6)
+        preferences.append(preference_title)
+
+        self.cleanup_combo = self.Gtk.ComboBoxText()
+        for value, label in (("off", "Off"), ("light", "Light"), ("medium", "Medium"), ("high", "High"), ("max", "Max")):
+            self.cleanup_combo.append(value, label)
+        preferences.append(self._setting_control_row("Cleanup intensity", "How strongly the local language model rewrites raw speech.", self.cleanup_combo))
+
+        self.courtesy_switch = self.Gtk.Switch()
+        self.courtesy_switch.set_valign(self.Gtk.Align.CENTER)
+        preferences.append(self._setting_control_row("Trim courtesy", "Remove leading or trailing “please” and “thank you” while preserving real sentences.", self.courtesy_switch))
+
+        self.audio_combo = self.Gtk.ComboBoxText()
+        for value, label in (("off", "Do nothing"), ("lower", "Lower volume"), ("pause", "Pause playback")):
+            self.audio_combo.append(value, label)
+        self.audio_combo.connect("changed", self._audio_mode_changed)
+        preferences.append(self._setting_control_row("While dictating", "Control other PipeWire audio only while capture is active.", self.audio_combo))
+
+        self.duck_scale = self.Gtk.Scale.new_with_range(self.Gtk.Orientation.HORIZONTAL, 0, 100, 5)
+        self.duck_scale.set_digits(0)
+        self.duck_scale.set_draw_value(True)
+        self.duck_scale.set_size_request(220, -1)
+        preferences.append(self._setting_control_row("Lower to", "Target percentage for Lower volume mode.", self.duck_scale))
+        page.append(preferences)
+
+        actions = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        save = self.Gtk.Button(label="Save settings")
+        save.add_css_class("primary")
+        save.connect("clicked", self._save_settings)
+        actions.append(save)
+        self.settings_note = self.Gtk.Label(label="", xalign=0)
+        self.settings_note.add_css_class("save-note")
+        self.settings_note.set_hexpand(True)
+        actions.append(self.settings_note)
+        page.append(actions)
 
         card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         card.add_css_class("card")
-        title = self.Gtk.Label(label="Dictation edges", xalign=0)
+        title = self.Gtk.Label(label="Hyprland edges", xalign=0)
         title.add_css_class("section-title")
         card.append(title)
-        card.append(self._code_row("Press", "yapctl press dictation"))
-        card.append(self._code_row("Release", "yapctl release dictation"))
-        hint = self.Gtk.Label(label="Bind both commands to your chosen key or chord. The release command must use Hyprland's release edge.", xalign=0, wrap=True)
+        card.append(self._code_row("Dictate ↓", "yapctl press dictation"))
+        card.append(self._code_row("Dictate ↑", "yapctl release dictation"))
+        card.append(self._code_row("Command ↓", "yapctl press command"))
+        card.append(self._code_row("Command ↑", "yapctl release command"))
+        hint = self.Gtk.Label(label="Bind each pair to your chosen keys. The ↑ commands must use Hyprland's release edge; Yap never rewrites your configuration.", xalign=0, wrap=True)
         hint.add_css_class("muted")
         card.append(hint)
         page.append(card)
 
-        future = self.Gtk.Label(label="NEXT SETTINGS SLICE", xalign=0)
-        future.add_css_class("future-mark")
-        page.append(future)
-        note = self.Gtk.Label(label="Cleanup intensity, courtesy trimming, audio behavior, and local model controls will appear here as each daemon capability becomes real.", xalign=0, wrap=True)
-        note.add_css_class("muted")
-        page.append(note)
-        return page
+        scroller = self.Gtk.ScrolledWindow()
+        scroller.set_policy(self.Gtk.PolicyType.NEVER, self.Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(page)
+        return scroller
+
+    def _setting_control_row(self, title: str, hint: str, control: object) -> object:
+        row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=18)
+        row.add_css_class("setting-row")
+        copy = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=2)
+        copy.set_hexpand(True)
+        name = self.Gtk.Label(label=title, xalign=0)
+        name.add_css_class("setting-name")
+        detail = self.Gtk.Label(label=hint, xalign=0, wrap=True)
+        detail.add_css_class("setting-hint")
+        copy.append(name)
+        copy.append(detail)
+        row.append(copy)
+        row.append(control)
+        return row
 
     def _code_row(self, label: str, command: str) -> object:
         row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -328,33 +476,253 @@ class Dashboard:
         row.append(copy)
         return row
 
-    def _future_page(self, eyebrow: str, title: str, description: str) -> object:
+    def _history_page(self) -> object:
         page = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=18)
         page.add_css_class("content")
-        page.append(self._page_header(eyebrow.upper(), title, description))
-        card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
-        card.add_css_class("card")
-        mark = self.Gtk.Label(label="FULL PARITY WORK IN PROGRESS", xalign=0)
-        mark.add_css_class("future-mark")
-        body = self.Gtk.Label(label="This surface is intentionally visible but does not pretend to store or change anything until the daemon owns the feature.", xalign=0, wrap=True)
-        body.add_css_class("muted")
-        card.append(mark)
-        card.append(body)
-        page.append(card)
+        page.append(self._page_header("HISTORY", "Your recent voice, locally held.", "Only text successfully inserted by Yap is stored. Audio is deleted after processing."))
+        actions = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.history_count = self.Gtk.Label(label="0 entries", xalign=0)
+        self.history_count.add_css_class("muted")
+        self.history_count.set_hexpand(True)
+        actions.append(self.history_count)
+        clear = self.Gtk.Button(label="Clear history")
+        clear.add_css_class("danger")
+        clear.connect("clicked", self._clear_history)
+        actions.append(clear)
+        page.append(actions)
+        scroller = self.Gtk.ScrolledWindow()
+        scroller.set_policy(self.Gtk.PolicyType.NEVER, self.Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+        self.history_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        scroller.set_child(self.history_box)
+        page.append(scroller)
+        return page
+
+    def _snippets_page(self) -> object:
+        page = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=18)
+        page.add_css_class("content")
+        page.append(self._page_header("SNIPPETS", "Speak less. Insert more.", "Whole spoken phrases expand after cleanup and before insertion. Everything stays local."))
+
+        form = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=9)
+        form.add_css_class("card")
+        title = self.Gtk.Label(label="Snippet editor", xalign=0)
+        title.add_css_class("section-title")
+        form.append(title)
+        trigger_label = self.Gtk.Label(label="SPOKEN TRIGGER", xalign=0)
+        trigger_label.add_css_class("field-label")
+        form.append(trigger_label)
+        self.snippet_trigger = self.Gtk.Entry(placeholder_text="for example: my address")
+        self.snippet_trigger.add_css_class("form-field")
+        form.append(self.snippet_trigger)
+        expansion_label = self.Gtk.Label(label="EXPANSION", xalign=0)
+        expansion_label.add_css_class("field-label")
+        form.append(expansion_label)
+        expansion_scroller = self.Gtk.ScrolledWindow()
+        expansion_scroller.set_min_content_height(86)
+        self.snippet_expansion = self.Gtk.TextView(wrap_mode=self.Gtk.WrapMode.WORD_CHAR)
+        self.snippet_expansion.add_css_class("form-field")
+        expansion_scroller.set_child(self.snippet_expansion)
+        form.append(expansion_scroller)
+        form_actions = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.snippet_save_button = self.Gtk.Button(label="Add snippet")
+        self.snippet_save_button.add_css_class("primary")
+        self.snippet_save_button.connect("clicked", self._save_snippet)
+        form_actions.append(self.snippet_save_button)
+        self.snippet_cancel_button = self.Gtk.Button(label="Cancel edit")
+        self.snippet_cancel_button.add_css_class("secondary")
+        self.snippet_cancel_button.connect("clicked", lambda _button: self._reset_snippet_form())
+        self.snippet_cancel_button.set_visible(False)
+        form_actions.append(self.snippet_cancel_button)
+        self.snippet_note = self.Gtk.Label(label="", xalign=0)
+        self.snippet_note.add_css_class("save-note")
+        self.snippet_note.set_hexpand(True)
+        form_actions.append(self.snippet_note)
+        form.append(form_actions)
+        page.append(form)
+
+        scroller = self.Gtk.ScrolledWindow()
+        scroller.set_policy(self.Gtk.PolicyType.NEVER, self.Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+        self.snippets_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        scroller.set_child(self.snippets_box)
+        page.append(scroller)
         return page
 
     def _connect_daemon(self) -> None:
         try:
             self.connection = self.Gio.bus_get_sync(self.Gio.BusType.SESSION, None)
             self.connection.signal_subscribe(BUS_NAME, INTERFACE_NAME, "StateChanged", OBJECT_PATH, None, self.Gio.DBusSignalFlags.NONE, self._state_changed)
+            self.connection.signal_subscribe(BUS_NAME, INTERFACE_NAME, "DataChanged", OBJECT_PATH, None, self.Gio.DBusSignalFlags.NONE, self._data_changed)
             result = self.connection.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE_NAME, "State", None, self.GLib.VariantType.new("(ssbs)"), self.Gio.DBusCallFlags.NONE, 5_000, None)
             self._render_daemon(*result.unpack())
+            self._apply_data(DataView.parse(self._call_data("Data")))
         except Exception as error:
             print(f"yap-ui: could not reach daemon: {error}", file=sys.stderr)
             self._render_daemon("idle", "", False, "daemon unavailable")
 
     def _state_changed(self, _connection: object, _sender: str, _path: str, _interface: str, _signal: str, parameters: object, *_user_data: object) -> None:
         self._render_daemon(*parameters.unpack())
+
+    def _data_changed(self, _connection: object, _sender: str, _path: str, _interface: str, _signal: str, parameters: object, *_user_data: object) -> None:
+        try:
+            self._apply_data(DataView.parse(parameters.unpack()[0]))
+        except Exception as error:
+            print(f"yap-ui: invalid local state update: {error}", file=sys.stderr)
+
+    def _call_data(self, method: str, parameters: object | None = None) -> str:
+        result = self.connection.call_sync(
+            BUS_NAME,
+            OBJECT_PATH,
+            INTERFACE_NAME,
+            method,
+            parameters,
+            self.GLib.VariantType.new("(s)"),
+            self.Gio.DBusCallFlags.NONE,
+            5_000,
+            None,
+        )
+        return str(result.unpack()[0])
+
+    def _apply_data(self, data: DataView) -> None:
+        self.data = data
+        self.cleanup_combo.set_active_id(data.settings.cleanup_intensity)
+        self.audio_combo.set_active_id(data.settings.audio_mode)
+        self.duck_scale.set_value(data.settings.duck_level * 100)
+        self.courtesy_switch.set_active(data.settings.trim_courtesy)
+        self._audio_mode_changed(self.audio_combo)
+        self._render_history(data.history)
+        self._render_snippets(data.snippets)
+
+    def _audio_mode_changed(self, _combo: object) -> None:
+        self.duck_scale.set_sensitive(self.audio_combo.get_active_id() == "lower")
+
+    def _save_settings(self, _button: object) -> None:
+        payload = json.dumps(
+            {
+                "cleanup_intensity": self.cleanup_combo.get_active_id() or "medium",
+                "audio_mode": self.audio_combo.get_active_id() or "pause",
+                "duck_level": self.duck_scale.get_value() / 100,
+                "trim_courtesy": self.courtesy_switch.get_active(),
+            },
+            separators=(",", ":"),
+        )
+        try:
+            raw = self._call_data("UpdateSettings", self.GLib.Variant("(s)", (payload,)))
+            self._apply_data(DataView.parse(raw))
+            self._set_note(self.settings_note, "Saved locally", False)
+        except Exception as error:
+            self._set_note(self.settings_note, f"Could not save: {error}", True)
+
+    def _render_history(self, history: tuple[HistoryView, ...]) -> None:
+        while child := self.history_box.get_first_child():
+            self.history_box.remove(child)
+        self.history_count.set_label(f"{len(history)} entr{'y' if len(history) == 1 else 'ies'}")
+        if not history:
+            empty = self.Gtk.Label(label="No dictations yet. Successfully inserted text will appear here.", wrap=True)
+            empty.add_css_class("empty-state")
+            self.history_box.append(empty)
+            return
+        for entry in history:
+            row = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=7)
+            row.add_css_class("item-row")
+            heading = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+            date = datetime.datetime.fromtimestamp(entry.created_unix_ms / 1000).astimezone()
+            meta = self.Gtk.Label(label=f"{entry.app_name or 'Unknown app'} · {date:%d %b %Y, %H:%M}", xalign=0)
+            meta.add_css_class("item-meta")
+            meta.set_hexpand(True)
+            heading.append(meta)
+            copy = self.Gtk.Button(label="Copy")
+            copy.add_css_class("secondary")
+            copy.connect("clicked", lambda _button, text=entry.text: self.window.get_clipboard().set(text))
+            heading.append(copy)
+            row.append(heading)
+            body = self.Gtk.Label(label=entry.text, xalign=0, yalign=0, wrap=True, selectable=True)
+            body.add_css_class("item-body")
+            row.append(body)
+            self.history_box.append(row)
+
+    def _clear_history(self, _button: object) -> None:
+        try:
+            self._apply_data(DataView.parse(self._call_data("ClearHistory")))
+        except Exception as error:
+            print(f"yap-ui: could not clear history: {error}", file=sys.stderr)
+
+    def _render_snippets(self, snippets: tuple[SnippetView, ...]) -> None:
+        while child := self.snippets_box.get_first_child():
+            self.snippets_box.remove(child)
+        if not snippets:
+            empty = self.Gtk.Label(label="No snippets yet. Add a spoken trigger above.", wrap=True)
+            empty.add_css_class("empty-state")
+            self.snippets_box.append(empty)
+            return
+        for snippet in snippets:
+            row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
+            row.add_css_class("item-row")
+            copy = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=3)
+            copy.set_hexpand(True)
+            trigger = self.Gtk.Label(label=snippet.trigger, xalign=0)
+            trigger.add_css_class("item-title")
+            expansion = self.Gtk.Label(label=snippet.expansion, xalign=0, wrap=True)
+            expansion.add_css_class("item-body")
+            copy.append(trigger)
+            copy.append(expansion)
+            row.append(copy)
+            edit = self.Gtk.Button(label="Edit")
+            edit.add_css_class("secondary")
+            edit.connect("clicked", lambda _button, item=snippet: self._edit_snippet(item))
+            row.append(edit)
+            remove = self.Gtk.Button(label="Delete")
+            remove.add_css_class("danger")
+            remove.connect("clicked", lambda _button, item_id=snippet.id: self._remove_snippet(item_id))
+            row.append(remove)
+            self.snippets_box.append(row)
+
+    def _edit_snippet(self, snippet: SnippetView) -> None:
+        self.editing_snippet_id = snippet.id
+        self.snippet_trigger.set_text(snippet.trigger)
+        self.snippet_expansion.get_buffer().set_text(snippet.expansion)
+        self.snippet_save_button.set_label("Save changes")
+        self.snippet_cancel_button.set_visible(True)
+        self.snippet_trigger.grab_focus()
+
+    def _save_snippet(self, _button: object) -> None:
+        buffer = self.snippet_expansion.get_buffer()
+        start, end = buffer.get_bounds()
+        trigger = self.snippet_trigger.get_text().strip()
+        expansion = buffer.get_text(start, end, True).strip()
+        if not trigger or not expansion:
+            self._set_note(self.snippet_note, "Trigger and expansion are required", True)
+            return
+        try:
+            parameters = self.GLib.Variant("(tss)", (self.editing_snippet_id, trigger, expansion))
+            self._apply_data(DataView.parse(self._call_data("SaveSnippet", parameters)))
+            self._reset_snippet_form()
+            self._set_note(self.snippet_note, "Saved locally", False)
+        except Exception as error:
+            self._set_note(self.snippet_note, f"Could not save: {error}", True)
+
+    def _remove_snippet(self, snippet_id: int) -> None:
+        try:
+            parameters = self.GLib.Variant("(t)", (snippet_id,))
+            self._apply_data(DataView.parse(self._call_data("RemoveSnippet", parameters)))
+            if self.editing_snippet_id == snippet_id:
+                self._reset_snippet_form()
+        except Exception as error:
+            self._set_note(self.snippet_note, f"Could not delete: {error}", True)
+
+    def _reset_snippet_form(self) -> None:
+        self.editing_snippet_id = 0
+        self.snippet_trigger.set_text("")
+        self.snippet_expansion.get_buffer().set_text("")
+        self.snippet_save_button.set_label("Add snippet")
+        self.snippet_cancel_button.set_visible(False)
+
+    def _set_note(self, label: object, message: str, error: bool) -> None:
+        label.set_label(message)
+        if error:
+            label.add_css_class("error")
+        else:
+            label.remove_css_class("error")
 
     def _render_daemon(self, phase: str, action: str, locked: bool, last_error: str) -> None:
         for name in ("processing", "error"):

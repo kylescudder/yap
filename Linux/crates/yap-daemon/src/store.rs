@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{RwLock, watch};
 
+use crate::polish;
+
 const STORE_VERSION: u32 = 1;
 const MAX_HISTORY_ENTRIES: usize = 200;
 
@@ -324,16 +326,10 @@ impl StateStore {
         Ok(candidate)
     }
 
-    /// Expands every configured whole-word snippet in insertion order.
-    pub async fn apply_snippets(&self, text: &str) -> String {
-        self.state
-            .read()
-            .await
-            .snippets
-            .iter()
-            .fold(text.to_owned(), |result, snippet| {
-                replace_whole_phrase(&result, &snippet.trigger, &snippet.expansion)
-            })
+    /// Applies deterministic output policy using one consistent settings/snippet snapshot.
+    pub async fn finalize_dictation(&self, text: &str) -> String {
+        let state = self.state.read().await;
+        polish::finalize(text, &state.settings, &state.snippets)
     }
 }
 
@@ -399,34 +395,6 @@ fn unix_time_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis());
     u64::try_from(millis).unwrap_or(u64::MAX)
-}
-
-fn replace_whole_phrase(text: &str, trigger: &str, expansion: &str) -> String {
-    if trigger.is_empty() {
-        return text.to_owned();
-    }
-    let mut matches = Vec::new();
-    for (start, _) in text.char_indices() {
-        let end = start.saturating_add(trigger.len());
-        let Some(candidate) = text.get(start..end) else {
-            continue;
-        };
-        if !candidate.eq_ignore_ascii_case(trigger) {
-            continue;
-        }
-        let before = text[..start].chars().next_back();
-        let after = text[end..].chars().next();
-        if before.is_none_or(|character| !character.is_alphanumeric())
-            && after.is_none_or(|character| !character.is_alphanumeric())
-        {
-            matches.push((start, end));
-        }
-    }
-    let mut result = text.to_owned();
-    for (start, end) in matches.into_iter().rev() {
-        result.replace_range(start..end, expansion);
-    }
-    result
 }
 
 #[cfg(test)]
@@ -523,11 +491,11 @@ mod tests {
             .expect("snippet persists");
 
         assert_eq!(
-            store.apply_snippets("Send it to MY ADDRESS, please.").await,
+            store.finalize_dictation("Send it to MY ADDRESS, please.").await,
             "Send it to 42 Yap Street, please."
         );
         assert_eq!(
-            store.apply_snippets("notmy addressbook").await,
+            store.finalize_dictation("notmy addressbook").await,
             "notmy addressbook"
         );
     }

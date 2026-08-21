@@ -16,6 +16,7 @@ use yap_core::{Action, Effect, Event, Phase, SessionConfig, SessionMachine};
 
 pub mod dbus;
 pub mod model;
+pub mod polish;
 pub mod runtime;
 pub mod store;
 

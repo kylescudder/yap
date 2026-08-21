@@ -413,7 +413,7 @@ impl PipelineRuntime for LocalRuntime {
         cleanup.map_err(|error| {
             RuntimeError(format!("could not remove private captured audio: {error}"))
         })?;
-        let text = self.store.apply_snippets(&text).await;
+        let text = self.store.finalize_dictation(&text).await;
         if text.is_empty() {
             return Ok(());
         }
