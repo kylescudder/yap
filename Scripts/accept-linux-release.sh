@@ -184,7 +184,7 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=12
+TOTAL_STAGES=13
 EXPECTED_VERSION="0.0.12"
 REPORT_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/yap"
 REPORT_FILE="$REPORT_ROOT/linux-acceptance-$EXPECTED_VERSION-$(date +%Y%m%dT%H%M%S).md"
@@ -194,6 +194,10 @@ PATH_OVERRIDE_ACTIVE=0
 ORIGINAL_MANAGER_PATH=""
 MANAGER_PATH_WAS_SET=0
 TEMP_BIN=""
+XDG_DATA_OVERRIDE_ACTIVE=0
+ORIGINAL_MANAGER_XDG_DATA_HOME=""
+MANAGER_XDG_DATA_HOME_WAS_SET=0
+CLEAN_DATA_ROOT=""
 
 install -d -m 700 "$REPORT_ROOT"
 umask 077
@@ -250,11 +254,25 @@ restore_overrides() {
     systemctl --user unset-environment YAP_FORCE_CPU >/dev/null 2>&1 || true
     CPU_OVERRIDE_ACTIVE=0
   fi
+  if (( XDG_DATA_OVERRIDE_ACTIVE )); then
+    pkill -TERM -f '/usr/bin/yap-ui' >/dev/null 2>&1 || true
+    if (( MANAGER_XDG_DATA_HOME_WAS_SET )); then
+      systemctl --user set-environment \
+        "XDG_DATA_HOME=$ORIGINAL_MANAGER_XDG_DATA_HOME" >/dev/null 2>&1 || true
+    else
+      systemctl --user unset-environment XDG_DATA_HOME >/dev/null 2>&1 || true
+    fi
+    XDG_DATA_OVERRIDE_ACTIVE=0
+  fi
   if [[ -n "$TEMP_BIN" && -d "$TEMP_BIN" ]]; then
     rm -f "$TEMP_BIN/wtype" "$TEMP_BIN/pw-record"
     rmdir "$TEMP_BIN" 2>/dev/null || true
   fi
   systemctl --user restart yap.service >/dev/null 2>&1 || true
+  if [[ -n "$CLEAN_DATA_ROOT" && "$CLEAN_DATA_ROOT" == "$REPORT_ROOT"/clean-onboarding.* ]]; then
+    rm -rf -- "$CLEAN_DATA_ROOT"
+    CLEAN_DATA_ROOT=""
+  fi
 }
 
 abort_wizard() {
@@ -480,6 +498,58 @@ human_gate "Dictation and Command Mode both complete successfully on forced CPU"
 systemctl --user unset-environment YAP_FORCE_CPU
 CPU_OVERRIDE_ACTIVE=0
 systemctl --user restart yap.service
+
+stage "Clean first-run onboarding and model download"
+section "Clean first-run onboarding and model download"
+say "This stage uses a wizard-owned XDG data directory; your real settings, models, snippets, and history are untouched."
+ORIGINAL_MANAGER_XDG_DATA_HOME=$(systemctl --user show-environment | sed -n 's/^XDG_DATA_HOME=//p' | head -n1)
+if [[ -n "$ORIGINAL_MANAGER_XDG_DATA_HOME" ]]; then
+  MANAGER_XDG_DATA_HOME_WAS_SET=1
+fi
+CLEAN_DATA_ROOT=$(mktemp -d "$REPORT_ROOT/clean-onboarding.XXXXXX")
+CLEAN_DATA_HOME="$CLEAN_DATA_ROOT/data"
+install -d -m 700 "$CLEAN_DATA_HOME"
+systemctl --user set-environment "XDG_DATA_HOME=$CLEAN_DATA_HOME"
+XDG_DATA_OVERRIDE_ACTIVE=1
+systemctl --user restart yap.service yap-overlay.service yap-tray.service
+if XDG_DATA_HOME="$CLEAN_DATA_HOME" yap doctor --json | grep -Fq '"compatibility": "setup_required"'; then
+  pass_gate "Fresh data state is recognized as requiring model setup"
+else
+  fail_gate "Fresh data state is recognized as requiring model setup"
+fi
+pkill -TERM -f '/usr/bin/yap-ui' >/dev/null 2>&1 || true
+XDG_DATA_HOME="$CLEAN_DATA_HOME" yap gui
+step "Confirm Overview explains the missing models, shows disk use, and offers Install local models."
+step "Click Install local models and wait for both the 547 MiB speech model and 2.33 GiB language model to verify."
+pause "Press Enter only after the dashboard reports that both models are ready."
+command_gate "Fresh GUI-installed models pass doctor" env XDG_DATA_HOME="$CLEAN_DATA_HOME" yap doctor
+systemctl --user restart yap.service
+step "Using the fresh defaults, run one Dictation and one Command Mode transformation."
+human_gate "Fresh onboarding, complete model download, Dictation, and Command Mode all succeed"
+SPEECH_MODEL_FILE="$CLEAN_DATA_HOME/yap/models/large-v3-turbo-q5_0/394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2/ggml-large-v3-turbo-q5_0.bin"
+if [[ -f "$SPEECH_MODEL_FILE" ]]; then
+  systemctl --user stop yap.service
+  printf '\0' | dd of="$SPEECH_MODEL_FILE" bs=1 seek=0 conv=notrunc status=none
+  systemctl --user start yap.service
+  step "The wizard corrupted only its isolated speech-model copy. Confirm the dashboard reports attention, then click Verify or repair local models."
+  pause "Press Enter after the 547 MiB speech model has been repaired and verified."
+  systemctl --user restart yap.service
+  command_gate "Corrupt isolated speech model repairs successfully" env XDG_DATA_HOME="$CLEAN_DATA_HOME" yap doctor
+else
+  fail_gate "Fresh speech model exists for the isolated repair test"
+fi
+pkill -TERM -f '/usr/bin/yap-ui' >/dev/null 2>&1 || true
+if (( MANAGER_XDG_DATA_HOME_WAS_SET )); then
+  systemctl --user set-environment "XDG_DATA_HOME=$ORIGINAL_MANAGER_XDG_DATA_HOME"
+else
+  systemctl --user unset-environment XDG_DATA_HOME
+fi
+XDG_DATA_OVERRIDE_ACTIVE=0
+systemctl --user restart yap.service yap-overlay.service yap-tray.service
+rm -rf -- "$CLEAN_DATA_ROOT"
+CLEAN_DATA_ROOT=""
+command_gate "Original Yap data and services recover after isolated onboarding" yap doctor
+human_gate "Original settings, snippets, and history are present after restoring the real data home"
 
 stage "Package lifecycle and README walkthrough"
 section "Package lifecycle and README walkthrough"

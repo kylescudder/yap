@@ -5,12 +5,11 @@ post_install() {
     'Complete setup as your desktop user:' \
     '' \
     '  yap model install' \
-    '  yap doctor' \
     '  yap setup hyprland' \
+    '  yap doctor' \
     '' \
     'Yap will print the press/release commands for your own Hyprland bindings.' \
     'Open the dashboard with: yap gui' \
-    'For NVIDIA acceleration, install the optional ggml-cuda package.' \
     ''
 }
 
