@@ -6,16 +6,18 @@ use zbus::{connection, fdo, object_server::SignalEmitter};
 use crate::{
     BUS_NAME, Coordinator, INTERFACE_NAME, OBJECT_PATH, PipelineRuntime, Status,
     action_name as phase_action_name, is_locked, phase_name,
+    store::{Settings, StateStore},
 };
 
 pub struct DictationInterface {
     coordinator: Arc<Coordinator>,
+    store: Arc<StateStore>,
 }
 
 impl DictationInterface {
     #[must_use]
-    pub fn new(coordinator: Arc<Coordinator>) -> Self {
-        Self { coordinator }
+    pub fn new(coordinator: Arc<Coordinator>, store: Arc<StateStore>) -> Self {
+        Self { coordinator, store }
     }
 }
 
@@ -50,6 +52,49 @@ impl DictationInterface {
         state_fields(&self.coordinator.status().await)
     }
 
+    async fn data(&self) -> fdo::Result<String> {
+        public_state_json(&self.store).await
+    }
+
+    async fn update_settings(&self, settings_json: &str) -> fdo::Result<String> {
+        let settings: Settings = serde_json::from_str(settings_json)
+            .map_err(|error| fdo::Error::InvalidArgs(format!("invalid settings JSON: {error}")))?;
+        let state = self
+            .store
+            .update_settings(settings)
+            .await
+            .map_err(store_failure)?;
+        StateStore::public_json(&state).map_err(store_failure)
+    }
+
+    async fn save_snippet(
+        &self,
+        id: u64,
+        trigger: &str,
+        expansion: &str,
+    ) -> fdo::Result<String> {
+        let state = self
+            .store
+            .save_snippet((id != 0).then_some(id), trigger, expansion)
+            .await
+            .map_err(store_failure)?;
+        StateStore::public_json(&state).map_err(store_failure)
+    }
+
+    async fn remove_snippet(&self, id: u64) -> fdo::Result<String> {
+        let state = self
+            .store
+            .remove_snippet(id)
+            .await
+            .map_err(store_failure)?;
+        StateStore::public_json(&state).map_err(store_failure)
+    }
+
+    async fn clear_history(&self) -> fdo::Result<String> {
+        let state = self.store.clear_history().await.map_err(store_failure)?;
+        StateStore::public_json(&state).map_err(store_failure)
+    }
+
     #[zbus(signal)]
     async fn state_changed(
         emitter: &SignalEmitter<'_>,
@@ -58,6 +103,17 @@ impl DictationInterface {
         locked: bool,
         last_error: &str,
     ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn data_changed(emitter: &SignalEmitter<'_>, data_json: &str) -> zbus::Result<()>;
+}
+
+async fn public_state_json(store: &StateStore) -> fdo::Result<String> {
+    StateStore::public_json(&store.snapshot().await).map_err(store_failure)
+}
+
+fn store_failure(error: impl std::fmt::Display) -> fdo::Error {
+    fdo::Error::Failed(error.to_string())
 }
 
 fn state_fields(status: &Status) -> (String, String, bool, String) {
@@ -85,12 +141,19 @@ fn parse_action(value: &str) -> fdo::Result<Action> {
 ///
 /// Returns an error if the session bus cannot be reached, the name or path cannot be registered,
 /// or the interrupt listener cannot be installed.
-pub async fn serve(runtime: Arc<dyn PipelineRuntime>) -> zbus::Result<()> {
+pub async fn serve(
+    runtime: Arc<dyn PipelineRuntime>,
+    store: Arc<StateStore>,
+) -> zbus::Result<()> {
     let coordinator = Coordinator::new(runtime);
     let mut statuses = coordinator.subscribe();
+    let mut store_updates = store.subscribe();
     let connection = connection::Builder::session()?
         .name(BUS_NAME)?
-        .serve_at(OBJECT_PATH, DictationInterface::new(coordinator))?
+        .serve_at(
+            OBJECT_PATH,
+            DictationInterface::new(coordinator, Arc::clone(&store)),
+        )?
         .build()
         .await?;
     let interface = connection
@@ -115,6 +178,23 @@ pub async fn serve(runtime: Arc<dyn PipelineRuntime>) -> zbus::Result<()> {
             }
         }
     });
+    let data_emitter = interface.signal_emitter().clone();
+    tokio::spawn(async move {
+        while store_updates.changed().await.is_ok() {
+            let data_json = match StateStore::public_json(&store_updates.borrow().clone()) {
+                Ok(data_json) => data_json,
+                Err(error) => {
+                    eprintln!("yapd: could not serialize local state: {error}");
+                    continue;
+                }
+            };
+            if let Err(error) =
+                DictationInterface::data_changed(&data_emitter, &data_json).await
+            {
+                eprintln!("yapd: could not publish local state on {INTERFACE_NAME}: {error}");
+            }
+        }
+    });
 
     tokio::signal::ctrl_c().await?;
     Ok(())
@@ -130,6 +210,16 @@ trait Dictation {
     async fn cancel(&self) -> zbus::Result<String>;
     async fn status(&self) -> zbus::Result<(String, String)>;
     async fn state(&self) -> zbus::Result<(String, String, bool, String)>;
+    async fn data(&self) -> zbus::Result<String>;
+    async fn update_settings(&self, settings_json: &str) -> zbus::Result<String>;
+    async fn save_snippet(
+        &self,
+        id: u64,
+        trigger: &str,
+        expansion: &str,
+    ) -> zbus::Result<String>;
+    async fn remove_snippet(&self, id: u64) -> zbus::Result<String>;
+    async fn clear_history(&self) -> zbus::Result<String>;
 }
 
 pub struct Client {
@@ -185,6 +275,68 @@ impl Client {
     /// Returns a D-Bus transport error if the daemon cannot be reached.
     pub async fn state(&self) -> zbus::Result<(String, String, bool, String)> {
         DictationProxy::new(&self.connection).await?.state().await
+    }
+
+    /// Reads settings, snippets, and history as stable JSON for desktop adapters.
+    ///
+    /// # Errors
+    ///
+    /// Returns a D-Bus transport or daemon persistence error.
+    pub async fn data(&self) -> zbus::Result<String> {
+        DictationProxy::new(&self.connection).await?.data().await
+    }
+
+    /// Replaces portable settings with a validated JSON document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a D-Bus transport, validation, or persistence error.
+    pub async fn update_settings(&self, settings_json: &str) -> zbus::Result<String> {
+        DictationProxy::new(&self.connection)
+            .await?
+            .update_settings(settings_json)
+            .await
+    }
+
+    /// Adds a snippet when `id` is zero or updates the identified snippet.
+    ///
+    /// # Errors
+    ///
+    /// Returns a D-Bus transport, validation, or persistence error.
+    pub async fn save_snippet(
+        &self,
+        id: u64,
+        trigger: &str,
+        expansion: &str,
+    ) -> zbus::Result<String> {
+        DictationProxy::new(&self.connection)
+            .await?
+            .save_snippet(id, trigger, expansion)
+            .await
+    }
+
+    /// Removes one snippet.
+    ///
+    /// # Errors
+    ///
+    /// Returns a D-Bus transport, validation, or persistence error.
+    pub async fn remove_snippet(&self, id: u64) -> zbus::Result<String> {
+        DictationProxy::new(&self.connection)
+            .await?
+            .remove_snippet(id)
+            .await
+    }
+
+    /// Clears local dictation history.
+    ///
+    /// # Errors
+    ///
+    /// Returns a D-Bus transport or persistence error.
+    pub async fn clear_history(&self) -> zbus::Result<String> {
+        DictationProxy::new(&self.connection)
+            .await?
+            .clear_history()
+            .await
     }
 }
 

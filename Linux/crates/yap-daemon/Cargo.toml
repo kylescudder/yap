@@ -19,14 +19,12 @@ async-trait.workspace = true
 nix = { version = "0.30", features = ["signal", "user"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart"] }
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 yap-core = { path = "../yap-core" }
 zbus.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints]
 workspace = true

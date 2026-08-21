@@ -17,6 +17,7 @@ use yap_core::{Action, Effect, Event, Phase, SessionConfig, SessionMachine};
 pub mod dbus;
 pub mod model;
 pub mod runtime;
+pub mod store;
 
 pub const BUS_NAME: &str = "com.yap.Yap";
 pub const OBJECT_PATH: &str = "/com/yap/Yap/Dictation";

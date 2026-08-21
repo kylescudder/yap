@@ -23,7 +23,7 @@ use tokio::{
 };
 use yap_core::Action;
 
-use crate::{PipelineRuntime, RuntimeError, model};
+use crate::{PipelineRuntime, RuntimeError, model, store::StateStore};
 
 const WHISPER_PORT: u16 = 19_401;
 const SERVER_START_TIMEOUT: Duration = Duration::from_secs(150);
@@ -255,6 +255,7 @@ pub struct LocalRuntime {
     capture: Mutex<Option<Capture>>,
     whisper: Arc<WhisperEngine>,
     paths: RuntimePaths,
+    store: Arc<StateStore>,
 }
 
 impl LocalRuntime {
@@ -263,13 +264,14 @@ impl LocalRuntime {
     /// # Errors
     ///
     /// Returns an error when private runtime storage or the loopback HTTP client cannot be created.
-    pub fn discover() -> Result<Arc<Self>, RuntimeError> {
+    pub fn discover(store: Arc<StateStore>) -> Result<Arc<Self>, RuntimeError> {
         let paths = RuntimePaths::discover()?;
         let whisper = Arc::new(WhisperEngine::new(&paths)?);
         Ok(Arc::new(Self {
             capture: Mutex::new(None),
             whisper,
             paths,
+            store,
         }))
     }
 
@@ -411,10 +413,16 @@ impl PipelineRuntime for LocalRuntime {
         cleanup.map_err(|error| {
             RuntimeError(format!("could not remove private captured audio: {error}"))
         })?;
+        let text = self.store.apply_snippets(&text).await;
         if text.is_empty() {
             return Ok(());
         }
-        insert_text(&text).await
+        insert_text(&text).await?;
+        self.store
+            .record_history(&text, None)
+            .await
+            .map_err(|error| RuntimeError(format!("could not record local history: {error}")))?;
+        Ok(())
     }
 }
 
