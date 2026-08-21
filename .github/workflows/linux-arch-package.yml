@@ -80,3 +80,5 @@ jobs:
           cargo test --locked --manifest-path Linux/Cargo.toml --workspace
           python Linux/ui/yap-overlay --self-test
           python Linux/ui/yap-ui --self-test
+          python Linux/ui/yap-tray --self-test
+          bash -n Prototypes/LinuxHyprlandSpike/run.sh

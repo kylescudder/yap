@@ -1,34 +1,28 @@
 # Yap for Linux
 
-This directory contains the durable Linux implementation. It deliberately lives beside the stable
-Swift/AppKit application rather than trying to compile Apple frameworks on Linux.
+The Linux port is a native Arch/Hyprland implementation beside the Swift/AppKit app. The user guide
+is in the repository [README](../README.md); this document records the durable module boundaries.
 
-The first module is `yap-core`, a platform-independent session machine. Its single transition
-interface owns hold-to-talk, quick-tap cancellation, double-tap locking, Command Mode, late timers,
-and ignored release edges. PipeWire, Whisper, Wayland, AT-SPI, storage, D-Bus, and GTK adapters will
-remain outside that seam.
+`yap-core` owns the session machine: hold/release behavior, quick-tap cancellation, double-tap
+locking, Command Mode, timer generations, and ignored edges. It contains no PipeWire, D-Bus, GTK,
+filesystem, compositor, or model process code.
 
-The `yap-linux-daemon` package owns the per-user session and exposes a deliberately small D-Bus
-interface at `com.yap.Yap.Dictation1`: send a press/release edge, cancel a recording, or read the
-current phase and last runtime error. The daemon timestamps edges itself with one monotonic clock.
-`PipelineRuntime` is the adapter seam for PipeWire capture and transcription/insertion. The first
-production adapter records 16 kHz mono WAV data into private runtime storage, sends it only to a
-persistent loopback `whisper-server`, deletes the recording, and inserts non-empty text with
-`wtype`. Command Mode remains explicitly unavailable.
+`yap-linux-daemon` owns one user's runtime truth. Its adapters capture private 16 kHz mono audio,
+publish numeric RMS levels, transcribe through a persistent loopback whisper.cpp server, clean or
+transform through a persistent loopback llama.cpp server, apply deterministic polishing and
+snippets, insert through Wayland, and remove audio. Focused-app collection retains only a sanitized
+application class; Command Mode selection stays in memory and the clipboard is restored.
 
-The `yap-cli` package provides two thin clients. `yap doctor` is the stable interface that absorbs
-useful capability checks from `Prototypes/LinuxHyprlandSpike`; its default check is read-only and
-offline, classifies hard blockers separately from degradations and expected setup, and supports
-JSON output. `yapctl` sends Hyprland hotkey edges to the daemon. The disposable shell harness itself
-will not ship in the final package.
+The daemon also owns the private atomic XDG store for settings, snippets, and the newest 200
+successful dictations. D-Bus exposes typed session state and JSON snapshots to thin clients;
+hotkey timing and pipeline policy are never reimplemented in GTK or shell code.
 
-For pre-release Arch testing, `packaging/arch/PKGBUILD.dev` builds the current checkout, installs
-`yap`, `yapd`, `yapctl`, D-Bus activation, and the per-user systemd unit, and declares all runtime
-dependencies for the target NVIDIA machine. `yap model install` performs the sole explicit network
-setup step and verifies the pinned model before use. `yap setup hyprland` starts the daemon and
-prints the press/release commands for user-owned Hyprland bindings. It does not choose or claim a
-hotkey. Development builds that installed the retired Right-Super binding are cleaned up safely,
-with the main Lua configuration backed up before its generated include is removed.
+`yap` provides offline diagnostics, explicit model installation/repair, dashboard launch, and
+Hyprland service setup. `yapctl` sends user-owned compositor press/release edges. `yap-overlay` is a
+non-focus-stealing layer-shell surface, `yap-ui` is the GTK4 dashboard, and `yap-tray` is the
+StatusNotifier menu adapter.
 
-The final AUR package will replace the checkout-based manifest with a checksummed release archive
-and split hardware acceleration choices cleanly so CPU-only systems do not require CUDA.
+`packaging/arch/PKGBUILD.dev` builds the checkout for pre-release hardware validation. The
+production `PKGBUILD` consumes an immutable checksummed GitHub archive, keeps CUDA optional, and
+installs all three user services. The disposable feasibility probe remains under `Prototypes/` and
+is not packaged.

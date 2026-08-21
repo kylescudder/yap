@@ -556,6 +556,9 @@ fn language_server_arguments(model: &Path) -> Vec<OsString> {
         OsString::from("--n-gpu-layers"),
         OsString::from("99"),
         OsString::from("--jinja"),
+        OsString::from("--offline"),
+        OsString::from("--log-verbosity"),
+        OsString::from("1"),
     ]
     .into()
 }
@@ -1035,6 +1038,17 @@ async fn set_clipboard(text: Option<&str>) -> Result<(), RuntimeError> {
 }
 
 async fn insert_text(text: &str) -> Result<(), RuntimeError> {
+    match insert_text_direct(text).await {
+        Ok(()) => Ok(()),
+        Err(direct_error) => insert_text_with_clipboard(text).await.map_err(|clipboard_error| {
+            RuntimeError(format!(
+                "direct text insertion failed ({direct_error}); clipboard insertion also failed ({clipboard_error})"
+            ))
+        }),
+    }
+}
+
+async fn insert_text_direct(text: &str) -> Result<(), RuntimeError> {
     let child = Command::new("wtype")
         .args(["-d", "1", "-"])
         .stdin(Stdio::piped())
@@ -1055,6 +1069,42 @@ async fn insert_text(text: &str) -> Result<(), RuntimeError> {
     } else {
         Err(RuntimeError(format!("wtype failed with {status}")))
     }
+}
+
+async fn insert_text_with_clipboard(text: &str) -> Result<(), RuntimeError> {
+    let previous = clipboard_text().await?;
+    set_clipboard(Some(text)).await?;
+    let paste = Command::new("wtype")
+        .args(["-M", "ctrl", "v", "-m", "ctrl"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .map_err(|error| RuntimeError(format!("could not send Paste with wtype: {error}")));
+
+    let paste = match paste {
+        Ok(status) if status.success() => {
+            tokio::time::sleep(Duration::from_millis(350)).await;
+            Ok(())
+        }
+        Ok(status) => Err(RuntimeError(format!("clipboard Paste failed with {status}"))),
+        Err(error) => Err(error),
+    };
+    if paste.is_err() {
+        let _ = set_clipboard(previous.as_deref()).await;
+        return paste;
+    }
+
+    let current = clipboard_text().await?;
+    if clipboard_can_be_restored(current.as_deref(), text) {
+        set_clipboard(previous.as_deref()).await?;
+    }
+    Ok(())
+}
+
+fn clipboard_can_be_restored(current: Option<&str>, inserted: &str) -> bool {
+    current == Some(inserted)
 }
 
 async fn write_child_input_and_wait(
@@ -1154,6 +1204,13 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_restore_never_overwrites_a_concurrent_change() {
+        assert!(clipboard_can_be_restored(Some("Yap output"), "Yap output"));
+        assert!(!clipboard_can_be_restored(Some("new user copy"), "Yap output"));
+        assert!(!clipboard_can_be_restored(None, "Yap output"));
+    }
+
+    #[test]
     fn arch_whisper_server_arguments_exclude_removed_no_context_flag() {
         let arguments = whisper_server_arguments(Path::new("/model.bin"));
         assert_eq!(
@@ -1187,5 +1244,13 @@ mod tests {
                 .iter()
                 .any(|argument| argument == &OsString::from("--jinja"))
         );
+        assert!(
+            arguments
+                .iter()
+                .any(|argument| argument == &OsString::from("--offline"))
+        );
+        assert!(arguments.windows(2).any(|pair| {
+            pair == [OsString::from("--log-verbosity"), OsString::from("1")]
+        }));
     }
 }

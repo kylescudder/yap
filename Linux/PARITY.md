@@ -25,23 +25,23 @@ platform has a better native convention.
 | Local transcription | WhisperKit | Complete with whisper.cpp | CPU baseline, optional acceleration, no network in the dictation path |
 | Text insertion | Accessibility paste | Complete with `wtype` | Clipboard fallback and multiline/non-ASCII validation |
 | Recording overlay | Live waveform pill | State-driven pill complete | Non-focus-stealing recording, locked, processing, and error states |
-| Live microphone level | Complete | Missing | Drive the recording waveform from captured audio levels |
-| Tray/menu application | Complete | Dashboard foundation in progress | Open status, settings, history, snippets, diagnostics, and quit/restart actions |
-| First-run onboarding | Complete | CLI and GUI health foundation | GUI health/setup flow with model and binding guidance |
-| Settings | Complete | Missing | Persist and edit all portable preferences |
-| Command Mode | Complete | State machine only | Local instruction processing, selection capture, and replacement |
-| Context-aware cleanup | Apple Foundation Models | Missing | Fully local Linux model with equivalent cleanup levels and fallback behavior |
-| Per-application tone | Complete | Missing | Focused-application context feeds cleanup without retaining private content |
-| Output polishing | Complete | Partial | Port preamble stripping, courtesy trimming, and empty-output handling |
-| Snippets | Complete | Missing | Local persistent CRUD, expansion, and GUI |
-| Dictation history | Complete | Missing | Local capped history, clear/copy actions, and GUI |
-| Audio handling | Off/lower/pause | Missing | PipeWire-native off/lower/pause behavior with reliable restoration |
+| Live microphone level | Complete | Implemented; hardware validation pending | Drive the recording waveform from captured audio levels |
+| Tray/menu application | Complete | Implemented; desktop validation pending | Open status, settings, history, snippets, diagnostics, and quit/restart actions |
+| First-run onboarding | Complete | Implemented; clean-install validation pending | GUI health/setup flow with model and binding guidance |
+| Settings | Complete | Implemented | Persist and edit all portable preferences |
+| Command Mode | Complete | Implemented; end-to-end validation pending | Local instruction processing, selection capture, and replacement |
+| Context-aware cleanup | Apple Foundation Models | Implemented with local Qwen3; quality validation pending | Fully local Linux model with equivalent cleanup levels and fallback behavior |
+| Per-application tone | Complete | Implemented | Focused-application context feeds cleanup without retaining private content |
+| Output polishing | Complete | Implemented | Port preamble stripping, courtesy trimming, and empty-output handling |
+| Snippets | Complete | Implemented | Local persistent CRUD, expansion, and GUI |
+| Dictation history | Complete | Implemented | Local capped history, clear/copy actions, and GUI |
+| Audio handling | Off/lower/pause | Implemented; playback validation pending | PipeWire-native off/lower/pause behavior with reliable restoration |
 | Permissions and health | Onboarding/settings | `yap doctor` complete | Surface actionable health in the GUI without recording content |
-| Model lifecycle | First-run download | CLI install plus GUI recovery action | GUI install/progress, verification, recovery, and disk-use visibility |
-| Privacy | Local-only | Local transcription complete | Cleanup and commands local; audit logs/reports for captured content |
-| Packaging | Signed app/DMG | Local Arch package complete | Clean install, upgrade, uninstall, CPU-only, and NVIDIA validation |
+| Model lifecycle | First-run download | Implemented; full download validation pending | GUI install/progress, verification, recovery, and disk-use visibility |
+| Privacy | Local-only | Implemented; final audit pending | Cleanup and commands local; audit logs/reports for captured content |
+| Packaging | Signed app/DMG | Production manifest update pending | Clean install, upgrade, uninstall, CPU-only, and NVIDIA validation |
 | Updates | Sparkle | Intentional difference | Document `pacman`/AUR-helper updates |
-| User documentation | Complete | Missing | Linux install, setup, usage, privacy, troubleshooting, update, and uninstall guide |
+| User documentation | Complete | Draft complete; clean-system walkthrough pending | Linux install, setup, usage, privacy, troubleshooting, update, and uninstall guide |
 
 ## Module seams
 

@@ -362,6 +362,21 @@ class Dashboard:
         hero.append(copy)
         page.append(hero)
 
+        start = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        start.add_css_class("card")
+        start_title = self.Gtk.Label(label="First run", xalign=0)
+        start_title.add_css_class("section-title")
+        start.append(start_title)
+        for step in (
+            "1 · Install and verify both local models below.",
+            "2 · Copy the Dictation and Command edge pairs from Settings into your Hyprland bindings.",
+            "3 · Hold your binding to speak; double-tap Dictation for hands-free mode.",
+        ):
+            label = self.Gtk.Label(label=step, xalign=0, wrap=True)
+            label.add_css_class("muted")
+            start.append(label)
+        page.append(start)
+
         heading = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
         title = self.Gtk.Label(label="Machine health", xalign=0)
         title.add_css_class("section-title")

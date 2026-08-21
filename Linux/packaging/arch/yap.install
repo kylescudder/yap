@@ -1,14 +1,15 @@
 post_install() {
   printf '%s\n' \
     '' \
-    'Yap was installed without a speech model or compositor hotkey.' \
+    'Yap was installed without local models or compositor hotkeys.' \
     'Complete setup as your desktop user:' \
     '' \
     '  yap model install' \
     '  yap doctor' \
     '  yap setup hyprland' \
     '' \
-    'Yap will print the press/release commands for your own Hyprland binding.' \
+    'Yap will print the press/release commands for your own Hyprland bindings.' \
+    'Open the dashboard with: yap gui' \
     'For NVIDIA acceleration, install the optional ggml-cuda package.' \
     ''
 }
@@ -18,6 +19,6 @@ post_upgrade() {
     '' \
     'Yap was upgraded. Restart a running user daemon to load the new binary:' \
     '' \
-    '  systemctl --user restart yap.service' \
+    '  systemctl --user restart yap.service yap-overlay.service yap-tray.service' \
     ''
 }
