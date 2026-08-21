@@ -1,0 +1,13 @@
+[Unit]
+Description=Yap local voice dictation
+After=graphical-session.target pipewire.service
+
+[Service]
+Type=dbus
+BusName=com.yap.Yap
+ExecStart=/usr/bin/yapd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

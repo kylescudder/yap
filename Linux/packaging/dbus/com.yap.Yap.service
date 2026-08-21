@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=com.yap.Yap
+Exec=/usr/bin/yapd
+SystemdService=yap.service

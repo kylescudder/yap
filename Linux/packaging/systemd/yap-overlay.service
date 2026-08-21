@@ -1,0 +1,12 @@
+[Unit]
+Description=Yap dictation status overlay
+After=graphical-session.target yap.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/yap-overlay
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

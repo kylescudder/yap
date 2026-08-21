@@ -1,96 +1,159 @@
 # Yap
 
-**Local-first voice dictation for macOS.** Hold a key, speak, and clean, formatted text is
-inserted into whatever app you're in — Slack, Mail, your editor, anywhere you can type.
-
-Everything runs **on-device**: no cloud, no accounts, no API keys, no subscription. Your voice
-never leaves your Mac. It's a privacy-respecting take on Wispr Flow.
+**Local-first voice dictation for macOS and Arch Linux.** Hold a key, speak, and clean,
+formatted text appears in the focused application. There are no accounts, API keys, cloud speech
+services, or subscription.
 
 ## Features
 
-- **Dictate into any app** — global push-to-talk; the cleaned text is pasted at your cursor.
-- **Hands-free mode** — double-tap the hotkey to lock a continuous session; press once to stop.
-- **Command Mode** — hold a second key and speak an instruction (e.g. *"make this more formal"*,
-  *"turn into bullet points"*, *"translate to Spanish"*). Selected text is rewritten in place;
-  with nothing selected, text is generated at the cursor.
-- **Custom hotkeys** — record any key or chord for push-to-talk and Command Mode.
-- **Context-aware cleanup** — filler removal, punctuation, and tone matched to the app you're in
-  (casual in chat, formal in email, code-preserving in editors), with a 5-level intensity slider.
-- **Snippets** — spoken triggers expand to saved text.
-- **Dictation history** — recent dictations, stored locally.
-- **100% offline & private** — on-device transcription and cleanup.
+- Dictation in any editable app, quick-tap cancellation, and double-tap hands-free mode.
+- Command Mode transforms selected text from a spoken instruction, or generates at the cursor.
+- Five cleanup levels, courtesy trimming, and tone matched to email, chat, code, or notes.
+- Persistent snippets, capped dictation history, and off/lower/pause playback behavior.
+- A non-focus-stealing recording indicator, dashboard, health checks, and tray controls.
+- Local transcription and cleanup after the explicit one-time model download.
 
-## How it works
+## Arch Linux and Hyprland
 
-A two-stage on-device pipeline:
+The first Linux release supports x86_64 Arch Linux in a Hyprland Wayland session. CPU inference is
+the baseline; NVIDIA acceleration is optional. The two pinned models use about 2.9 GiB in total.
 
-1. **Transcription** — [WhisperKit](https://github.com/argmaxinc/WhisperKit) running Whisper
-   `large-v3-turbo` (CoreML / Apple Neural Engine).
-2. **Cleanup** — Apple's on-device **Foundation Models** (macOS 26) rewrite the raw transcript:
-   remove fillers/false starts, fix punctuation and casing, resolve self-corrections, and match
-   the target app's tone.
+### Install
 
-The result is inserted at your cursor via the Accessibility API. Global hotkeys use a
-`CGEventTap`; audio is captured with `AVAudioEngine`.
-
-## Requirements
-
-- **macOS 26+** recommended (on-device cleanup uses the Foundation Models framework; on macOS 14–15
-  transcription still works and cleanup falls back to the raw transcript).
-- **Apple Silicon** recommended.
-- Full **Xcode** or the Command Line Tools to build.
-- ~1.3 GB Whisper model is downloaded once on first run (then fully offline).
-
-## Build & run
+Once the package is published to the AUR:
 
 ```sh
-swift build              # compile
-./Scripts/run.sh         # build a signed .app bundle and launch it
-./Scripts/build-app.sh   # build the bundle without launching
-./Scripts/reset.sh       # revoke permissions + wipe prefs for a clean first-run test
+paru -S yap-dictation
 ```
 
-Yap is a menu-bar agent (no Dock icon) — look for the mic icon after launch. `build-app.sh`
-auto-detects a code-signing identity so macOS permission grants persist across rebuilds.
-
-### Permissions
-
-On first launch Yap asks for three permissions (all local, all needed to dictate into any app):
-
-- **Microphone** — capture your voice for on-device transcription
-- **Accessibility** — read the focused field and insert text
-- **Input Monitoring** — detect the push-to-talk hotkey system-wide
-
-Manage them any time from the menu-bar icon → **Settings → Permissions**.
-
-## Usage
-
-- **Hold** your push-to-talk key (default **Right ⇧**) → speak → release → text is inserted.
-- **Double-tap** it → hands-free lock; **press once** to stop.
-- **Hold** your Command Mode key (default **Right ⌥**) → speak an instruction → transforms the
-  selection (or generates at the cursor).
-- Configure hotkeys, cleanup intensity, snippets, and permissions in **Settings**.
-
-## Privacy
-
-Dictation and cleanup run entirely on-device — there are no network calls in the dictation path.
-The only network access is the one-time WhisperKit model download from Hugging Face.
-
-## Auto-update
-
-Releases ship via [Sparkle](https://sparkle-project.org). The app checks
-`https://github.com/kylescudder/yap/releases/latest/download/appcast.xml`. Maintainers cut a
-notarized, auto-updating release with:
+Until then, build the release package from a checkout:
 
 ```sh
-./Scripts/release.sh            # build → Developer-ID sign → notarize → staple → Sparkle-sign → publish to GitHub Releases
+git clone https://github.com/kylescudder/yap.git
+cd yap/Linux/packaging/arch
+makepkg --syncdeps --install --cleanbuild --clean
 ```
 
-(Requires a *Developer ID Application* certificate and a `YapNotary` notarytool keychain profile.)
+For NVIDIA acceleration, install the shared ggml CUDA backend. CPU-only systems should skip this:
+
+```sh
+sudo pacman -S --needed ggml-cuda
+```
+
+The package conflicts with the unrelated YAP Prolog compiler because both projects install
+`/usr/bin/yap`; pacman cannot keep both command-line tools installed simultaneously.
+
+Complete user-scoped setup—never run these commands with `sudo`:
+
+```sh
+yap model install
+yap setup hyprland
+yap doctor
+```
+
+`yap model install` downloads pinned Whisper and Qwen GGUF files from Hugging Face, verifies their
+SHA-256 hashes, and repairs a corrupt Yap-owned model when asked to run again. Dictation is offline
+after that step.
+
+### Hyprland bindings
+
+Yap deliberately leaves hotkeys in your compositor configuration. A binding must send both edges:
+
+```ini
+# Example keys only—choose bindings that fit your configuration.
+bind  = SUPER, D, exec, yapctl press dictation
+bindr = SUPER, D, exec, yapctl release dictation
+
+bind  = SUPER ALT, D, exec, yapctl press command
+bindr = SUPER ALT, D, exec, yapctl release command
+```
+
+For Hyprland's Lua configuration, bind the same four commands through your existing `hl.bind`
+helpers and mark the two release commands as release-edge bindings. `yap setup hyprland` and the
+dashboard print copyable command pairs; Yap never rewrites a user-owned Hyprland file.
+
+### Linux usage
+
+- Hold the Dictation binding, speak, then release to transcribe, clean, and insert.
+- Quickly tap and release to cancel without transcription.
+- Double-tap Dictation for hands-free recording; press once more to stop.
+- Select text, hold Command Mode, and speak an instruction such as “make this more concise.” With
+  no selection, Command Mode writes the requested text at the cursor.
+- Run `yap gui`, launch **Yap** from the app launcher, or use the tray icon for health, settings,
+  history, snippets, restart, and quit controls.
+
+Settings and history are stored privately under `${XDG_DATA_HOME:-~/.local/share}/yap`. Temporary
+WAV files and logs use `$XDG_RUNTIME_DIR/yap`, are user-only, and captured audio is removed after
+processing. Selection text is held in memory only; the clipboard is restored unless it changed
+concurrently.
+
+### Linux troubleshooting
+
+```sh
+yap doctor
+yap gui
+systemctl --user status yap.service yap-overlay.service yap-tray.service
+journalctl --user -u yap.service -b --no-pager
+```
+
+The model-server logs contain runtime/backend diagnostics but no transcript:
+
+```sh
+tail -n 80 "$XDG_RUNTIME_DIR/yap/whisper-server.log"
+tail -n 80 "$XDG_RUNTIME_DIR/yap/llama-server.log"
+```
+
+To diagnose or validate CPU inference without removing an installed CUDA backend, temporarily
+force both local model servers onto the CPU, then restore the normal automatic backend choice:
+
+```sh
+systemctl --user set-environment YAP_FORCE_CPU=1
+systemctl --user restart yap.service
+# Exercise Dictation and Command Mode, then inspect the two model-server logs above.
+systemctl --user unset-environment YAP_FORCE_CPU
+systemctl --user restart yap.service
+```
+
+Package updates belong to pacman or your AUR helper, for example `paru -Syu`. To uninstall while
+leaving private models/settings available for a later reinstall:
+
+```sh
+systemctl --user disable --now yap.service yap-overlay.service yap-tray.service
+paru -Rns yap-dictation
+```
+
+Delete `${XDG_DATA_HOME:-~/.local/share}/yap` yourself only if you also want to erase models,
+settings, snippets, and history.
+
+## macOS
+
+Yap's macOS application uses WhisperKit on Apple Silicon and Apple's on-device Foundation Models
+for cleanup. macOS 26+ is recommended; on macOS 14–15 transcription works with passthrough cleanup.
+
+```sh
+swift build
+./Scripts/run.sh         # build a signed app bundle and launch it
+./Scripts/build-app.sh   # build without launching
+./Scripts/reset.sh       # clean first-run permission test
+```
+
+On first launch, grant Microphone, Accessibility, and Input Monitoring. Then hold the default
+Right Shift binding to dictate, double-tap for hands-free mode, or hold Right Option for Command
+Mode. The menu-bar icon opens settings, history, and snippets.
+
+macOS releases update through Sparkle. Maintainers create a notarized release with
+`./Scripts/release.sh` and a configured Developer ID certificate and `YapNotary` keychain profile.
+
+## How it stays local
+
+On Linux, `whisper-server` and `llama-server` bind only to loopback. On macOS, WhisperKit and
+Foundation Models run in-process. Normal dictation, cleanup, Command Mode, snippets, and history do
+not make network requests. Network access is limited to explicit model installation and normal
+package/update tooling.
 
 ## License
 
 [MIT](LICENSE) © Kyle Scudder.
 
-Built with [WhisperKit](https://github.com/argmaxinc/WhisperKit), Apple Foundation Models, and
-[Sparkle](https://github.com/sparkle-project/Sparkle). Inspired by Wispr Flow.
+Built with WhisperKit, whisper.cpp, llama.cpp, Qwen3, Apple Foundation Models, PipeWire, GTK, and
+Wayland.

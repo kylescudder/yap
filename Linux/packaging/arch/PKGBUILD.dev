@@ -1,0 +1,92 @@
+# Maintainer: Yap contributors
+# DEVELOPMENT PACKAGE ONLY — builds the current checkout, not an AUR release source.
+
+pkgname=yap-linux-dev
+pkgver=0.0.12.r0.glocal
+pkgrel=1
+pkgdesc='Local-first voice dictation for Linux (development checkout)'
+arch=('x86_64')
+url='https://github.com/kylescudder/yap'
+license=('MIT')
+depends=(
+  'glib2'
+  'gtk3'
+  'gtk4'
+  'gtk4-layer-shell'
+  'hicolor-icon-theme'
+  'hyprland'
+  'libayatana-appindicator'
+  'llama-cpp'
+  'pango'
+  'pipewire'
+  'pipewire-audio'
+  'python-gobject'
+  'whisper-cpp'
+  'ggml-cpu'
+  'ggml-cuda'
+  'wtype'
+  'wl-clipboard'
+  'wireplumber'
+  'xdg-desktop-portal'
+  'xdg-desktop-portal-hyprland'
+  'curl'
+)
+makedepends=('cargo' 'git')
+provides=('yap-dictation')
+conflicts=('yap' 'yap-dictation' 'yap-dictation-debug')
+options=('!debug')
+source=()
+sha256sums=()
+
+_checkout="$(realpath "$startdir/../../..")"
+
+pkgver() {
+  local count revision
+  count="$(git -C "$_checkout" rev-list --count HEAD)"
+  revision="$(git -C "$_checkout" rev-parse --short HEAD)"
+  printf '0.0.12.r%s.g%s' "$count" "$revision"
+}
+
+build() {
+  CARGO_TARGET_DIR="$srcdir/target" \
+    cargo build \
+      --locked \
+      --release \
+      --manifest-path "$_checkout/Linux/Cargo.toml" \
+      --workspace
+}
+
+check() {
+  CARGO_TARGET_DIR="$srcdir/target" \
+    cargo test \
+      --locked \
+      --manifest-path "$_checkout/Linux/Cargo.toml"
+}
+
+package() {
+  install -Dm755 "$srcdir/target/release/yap" "$pkgdir/usr/bin/yap"
+  install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
+  install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
+  install -Dm755 "$_checkout/Linux/ui/yap-overlay" "$pkgdir/usr/bin/yap-overlay"
+  install -Dm755 "$_checkout/Linux/ui/yap-ui" "$pkgdir/usr/bin/yap-ui"
+  install -Dm755 "$_checkout/Linux/ui/yap-tray" "$pkgdir/usr/bin/yap-tray"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/systemd/yap.service" \
+    "$pkgdir/usr/lib/systemd/user/yap.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/systemd/yap-overlay.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-overlay.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/systemd/yap-tray.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-tray.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/dbus/com.yap.Yap.service" \
+    "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/desktop/com.yap.Yap.Dashboard.desktop" \
+    "$pkgdir/usr/share/applications/com.yap.Yap.Dashboard.desktop"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/icons/com.yap.Yap.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg"
+  install -Dm644 "$_checkout/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

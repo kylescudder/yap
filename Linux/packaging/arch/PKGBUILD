@@ -1,0 +1,102 @@
+# Maintainer: Kyle Scudder
+
+pkgname=yap-dictation
+pkgver=0.0.12
+pkgrel=1
+pkgdesc='Local-first voice dictation for Wayland and Hyprland'
+arch=('x86_64')
+url='https://github.com/kylescudder/yap'
+license=('MIT')
+depends=(
+  'curl'
+  'gcc-libs'
+  'ggml-cpu'
+  'glib2'
+  'glibc'
+  'gtk3'
+  'gtk4'
+  'gtk4-layer-shell'
+  'hicolor-icon-theme'
+  'hyprland'
+  'libayatana-appindicator'
+  'llama-cpp'
+  'pango'
+  'pipewire'
+  'pipewire-audio'
+  'python'
+  'python-gobject'
+  'systemd'
+  'whisper-cpp'
+  'wireplumber'
+  'wl-clipboard'
+  'wtype'
+  'xdg-desktop-portal'
+  'xdg-desktop-portal-hyprland'
+)
+optdepends=('ggml-cuda: NVIDIA CUDA acceleration for both local models')
+makedepends=('cargo')
+conflicts=('yap' 'yap-linux-dev' 'yap-linux-dev-debug')
+options=('!debug')
+install=yap.install
+_commit='0fe5a173d335ef336979f4eae0960fde9bfd4840'
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${_commit}.tar.gz")
+sha256sums=('5f8e063ca72dd2fb4441d25ebc31b372a9337a2b3efebfc9b45c07369f52f994')
+
+prepare() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch \
+    --locked \
+    --manifest-path "$srcdir/yap-${_commit}/Linux/Cargo.toml"
+}
+
+build() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo build \
+    --frozen \
+    --release \
+    --manifest-path "$srcdir/yap-${_commit}/Linux/Cargo.toml" \
+    --workspace
+}
+
+check() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo test \
+    --frozen \
+    --manifest-path "$srcdir/yap-${_commit}/Linux/Cargo.toml" \
+    --workspace
+}
+
+package() {
+  local source_root="$srcdir/yap-${_commit}"
+
+  install -Dm755 "$srcdir/target/release/yap" "$pkgdir/usr/bin/yap"
+  install -Dm755 "$srcdir/target/release/yapctl" "$pkgdir/usr/bin/yapctl"
+  install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
+  install -Dm755 "$source_root/Linux/ui/yap-overlay" "$pkgdir/usr/bin/yap-overlay"
+  install -Dm755 "$source_root/Linux/ui/yap-ui" "$pkgdir/usr/bin/yap-ui"
+  install -Dm755 "$source_root/Linux/ui/yap-tray" "$pkgdir/usr/bin/yap-tray"
+  install -Dm644 \
+    "$source_root/Linux/packaging/systemd/yap.service" \
+    "$pkgdir/usr/lib/systemd/user/yap.service"
+  install -Dm644 \
+    "$source_root/Linux/packaging/systemd/yap-overlay.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-overlay.service"
+  install -Dm644 \
+    "$source_root/Linux/packaging/systemd/yap-tray.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-tray.service"
+  install -Dm644 \
+    "$source_root/Linux/packaging/dbus/com.yap.Yap.service" \
+    "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"
+  install -Dm644 \
+    "$source_root/Linux/packaging/desktop/com.yap.Yap.Dashboard.desktop" \
+    "$pkgdir/usr/share/applications/com.yap.Yap.Dashboard.desktop"
+  install -Dm644 \
+    "$source_root/Linux/packaging/icons/com.yap.Yap.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg"
+  install -Dm644 "$source_root/README.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$source_root/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

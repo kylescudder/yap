@@ -1,0 +1,23 @@
+post_install() {
+  printf '%s\n' \
+    '' \
+    'Yap was installed without local models or compositor hotkeys.' \
+    'Complete setup as your desktop user:' \
+    '' \
+    '  yap model install' \
+    '  yap setup hyprland' \
+    '  yap doctor' \
+    '' \
+    'Yap will print the press/release commands for your own Hyprland bindings.' \
+    'Open the dashboard with: yap gui' \
+    ''
+}
+
+post_upgrade() {
+  printf '%s\n' \
+    '' \
+    'Yap was upgraded. Restart a running user daemon to load the new binary:' \
+    '' \
+    '  systemctl --user restart yap.service yap-overlay.service yap-tray.service' \
+    ''
+}

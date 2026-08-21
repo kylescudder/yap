@@ -1,0 +1,93 @@
+name: Linux Arch package
+
+on:
+  pull_request:
+    paths:
+      - 'Linux/**'
+      - '.github/workflows/linux-arch-package.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'Linux/**'
+      - '.github/workflows/linux-arch-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-arch-package-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Update build image
+        run: |
+          printf '%s\n' \
+            'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' \
+            > /etc/pacman.d/mirrorlist
+          for attempt in 1 2 3; do
+            if pacman -Syyu --noconfirm git sudo python; then
+              exit 0
+            fi
+            sleep "$((attempt * 10))"
+          done
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Configure unprivileged package builder
+        run: |
+          useradd --create-home builder
+          printf 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman\n' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Verify AUR metadata
+        run: |
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          su builder --shell /bin/bash --command \
+            "cd '$package_dir' && makepkg --printsrcinfo" > /tmp/yap.SRCINFO
+          diff -u "$package_dir/.SRCINFO" /tmp/yap.SRCINFO
+
+      - name: Build and test package
+        run: |
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          su builder --shell /bin/bash --command \
+            "cd '$package_dir' && makepkg --syncdeps --noconfirm --cleanbuild --clean --force"
+
+      - name: Verify CPU base package
+        run: |
+          if pacman -Q ggml-cuda >/dev/null 2>&1; then
+            echo 'ggml-cuda must remain optional'
+            exit 1
+          fi
+          pacman -U --noconfirm \
+            "$GITHUB_WORKSPACE"/Linux/packaging/arch/yap-dictation-*.pkg.tar.zst
+          expected_version="$(sed -n 's/^[[:space:]]*pkgver = //p' \
+            "$GITHUB_WORKSPACE/Linux/packaging/arch/.SRCINFO" | head -n 1)"
+          test "$(yap --version)" = "yap $expected_version"
+          test "$(yapctl --version)" = "yapctl $expected_version"
+          test -x /usr/bin/yapd
+          test -x /usr/bin/yap-overlay
+          test -x /usr/bin/yap-ui
+          test -x /usr/bin/yap-tray
+          test -f /usr/lib/systemd/user/yap.service
+          test -f /usr/lib/systemd/user/yap-overlay.service
+          test -f /usr/lib/systemd/user/yap-tray.service
+          test -f /usr/share/dbus-1/services/com.yap.Yap.service
+          test -f /usr/share/applications/com.yap.Yap.Dashboard.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg
+
+      - name: Verify current Linux source
+        run: |
+          grep -Fx "options=('!debug')" Linux/packaging/arch/PKGBUILD.dev
+          cargo test --locked --manifest-path Linux/Cargo.toml --workspace
+          python Linux/ui/yap-overlay --self-test
+          python Linux/ui/yap-ui --self-test
+          python Linux/ui/yap-tray --self-test
+          bash -n Prototypes/LinuxHyprlandSpike/run.sh
