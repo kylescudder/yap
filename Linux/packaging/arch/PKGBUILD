@@ -21,6 +21,7 @@ depends=(
   'libayatana-appindicator'
   'llama-cpp'
   'pango'
+  'pipewire'
   'pipewire-audio'
   'python'
   'python-gobject'

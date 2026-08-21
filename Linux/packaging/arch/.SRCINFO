@@ -20,6 +20,7 @@ pkgbase = yap-dictation
 	depends = libayatana-appindicator
 	depends = llama-cpp
 	depends = pango
+	depends = pipewire
 	depends = pipewire-audio
 	depends = python
 	depends = python-gobject
