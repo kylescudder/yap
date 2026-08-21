@@ -100,6 +100,17 @@ tail -n 80 "$XDG_RUNTIME_DIR/yap/whisper-server.log"
 tail -n 80 "$XDG_RUNTIME_DIR/yap/llama-server.log"
 ```
 
+To diagnose or validate CPU inference without removing an installed CUDA backend, temporarily
+force both local model servers onto the CPU, then restore the normal automatic backend choice:
+
+```sh
+systemctl --user set-environment YAP_FORCE_CPU=1
+systemctl --user restart yap.service
+# Exercise Dictation and Command Mode, then inspect the two model-server logs above.
+systemctl --user unset-environment YAP_FORCE_CPU
+systemctl --user restart yap.service
+```
+
 Package updates belong to pacman or your AUR helper, for example `paru -Syu`. To uninstall while
 leaving private models/settings available for a later reinstall:
 

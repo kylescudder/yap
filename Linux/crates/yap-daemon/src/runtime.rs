@@ -246,7 +246,10 @@ impl WhisperEngine {
             .map_err(|error| RuntimeError(format!("could not open Whisper log: {error}")))?;
         let mut command = Command::new("whisper-server");
         command
-            .args(whisper_server_arguments(&self.model))
+            .args(whisper_server_arguments(
+                &self.model,
+                force_cpu_requested(),
+            ))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(stderr))
@@ -305,8 +308,8 @@ impl WhisperEngine {
     }
 }
 
-fn whisper_server_arguments(model: &Path) -> Vec<OsString> {
-    [
+fn whisper_server_arguments(model: &Path, force_cpu: bool) -> Vec<OsString> {
+    let mut arguments: Vec<OsString> = [
         OsString::from("--model"),
         model.as_os_str().to_owned(),
         OsString::from("--language"),
@@ -317,7 +320,11 @@ fn whisper_server_arguments(model: &Path) -> Vec<OsString> {
         OsString::from(WHISPER_PORT.to_string()),
         OsString::from("--no-timestamps"),
     ]
-    .into()
+    .into();
+    if force_cpu {
+        arguments.push(OsString::from("--no-gpu"));
+    }
+    arguments
 }
 
 #[derive(Debug, Deserialize)]
@@ -540,7 +547,10 @@ impl LanguageEngine {
             .map_err(|error| RuntimeError(format!("could not open language log: {error}")))?;
         let mut command = Command::new("llama-server");
         command
-            .args(language_server_arguments(&self.model))
+            .args(language_server_arguments(
+                &self.model,
+                force_cpu_requested(),
+            ))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(stderr))
@@ -599,7 +609,7 @@ impl LanguageEngine {
     }
 }
 
-fn language_server_arguments(model: &Path) -> Vec<OsString> {
+fn language_server_arguments(model: &Path, force_cpu: bool) -> Vec<OsString> {
     [
         OsString::from("--model"),
         model.as_os_str().to_owned(),
@@ -612,13 +622,22 @@ fn language_server_arguments(model: &Path) -> Vec<OsString> {
         OsString::from("--ctx-size"),
         OsString::from("4096"),
         OsString::from("--n-gpu-layers"),
-        OsString::from("99"),
+        OsString::from(if force_cpu { "0" } else { "99" }),
         OsString::from("--jinja"),
         OsString::from("--offline"),
         OsString::from("--log-verbosity"),
         OsString::from("1"),
     ]
     .into()
+}
+
+fn force_cpu_requested() -> bool {
+    std::env::var("YAP_FORCE_CPU").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 /// Production adapter for the first Linux dictation slice.
@@ -1281,7 +1300,7 @@ mod tests {
 
     #[test]
     fn arch_whisper_server_arguments_exclude_removed_no_context_flag() {
-        let arguments = whisper_server_arguments(Path::new("/model.bin"));
+        let arguments = whisper_server_arguments(Path::new("/model.bin"), false);
         assert_eq!(
             arguments,
             [
@@ -1300,8 +1319,23 @@ mod tests {
     }
 
     #[test]
+    fn forced_cpu_disables_gpu_for_both_model_servers() {
+        let whisper = whisper_server_arguments(Path::new("/model.bin"), true);
+        assert!(
+            whisper
+                .iter()
+                .any(|argument| argument == &OsString::from("--no-gpu"))
+        );
+
+        let language = language_server_arguments(Path::new("/language.gguf"), true);
+        assert!(language.windows(2).any(|pair| {
+            pair == [OsString::from("--n-gpu-layers"), OsString::from("0")]
+        }));
+    }
+
+    #[test]
     fn language_server_is_loopback_only_and_uses_gpu_offload() {
-        let arguments = language_server_arguments(Path::new("/language.gguf"));
+        let arguments = language_server_arguments(Path::new("/language.gguf"), false);
         assert!(arguments.windows(2).any(|pair| {
             pair == [OsString::from("--host"), OsString::from("127.0.0.1")]
         }));
