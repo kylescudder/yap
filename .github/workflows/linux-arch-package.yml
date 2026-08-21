@@ -68,8 +68,10 @@ jobs:
           fi
           pacman -U --noconfirm \
             "$GITHUB_WORKSPACE"/Linux/packaging/arch/yap-dictation-*.pkg.tar.zst
-          yap --version
-          yapctl --version
+          expected_version="$(sed -n 's/^[[:space:]]*pkgver = //p' \
+            "$GITHUB_WORKSPACE/Linux/packaging/arch/.SRCINFO" | head -n 1)"
+          test "$(yap --version)" = "yap $expected_version"
+          test "$(yapctl --version)" = "yapctl $expected_version"
           test -x /usr/bin/yapd
           test -x /usr/bin/yap-overlay
           test -x /usr/bin/yap-ui

@@ -40,6 +40,9 @@ For NVIDIA acceleration, install the shared ggml CUDA backend. CPU-only systems 
 sudo pacman -S --needed ggml-cuda
 ```
 
+The package conflicts with the unrelated YAP Prolog compiler because both projects install
+`/usr/bin/yap`; pacman cannot keep both command-line tools installed simultaneously.
+
 Complete user-scoped setup—never run these commands with `sudo`:
 
 ```sh

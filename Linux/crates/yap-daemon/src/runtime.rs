@@ -691,7 +691,7 @@ fn force_cpu_requested() -> bool {
     })
 }
 
-/// Production adapter for the first Linux dictation slice.
+/// Production adapter for the complete local Linux dictation pipeline.
 #[derive(Debug)]
 pub struct LocalRuntime {
     capture: Mutex<Option<Capture>>,

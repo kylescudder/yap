@@ -309,7 +309,7 @@ class Dashboard:
         privacy = self.Gtk.Label(label="Speech stays on this machine", xalign=0, wrap=True)
         privacy.add_css_class("muted")
         sidebar.append(privacy)
-        version = self.Gtk.Label(label="LINUX ALPHA · AUR BLOCKED", xalign=0)
+        version = self.Gtk.Label(label="LINUX 0.0.12", xalign=0)
         version.add_css_class("version")
         sidebar.append(version)
         return sidebar
