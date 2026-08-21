@@ -24,7 +24,7 @@ use tokio::{
 use yap_core::Action;
 
 use crate::{
-    PipelineRuntime, RuntimeError, model, polish,
+    PipelineRuntime, RuntimeError, audio::AudioSession, model, polish,
     store::{CleanupIntensity, StateStore},
 };
 
@@ -76,6 +76,7 @@ struct Capture {
     child: Child,
     path: PathBuf,
     selection: Option<String>,
+    audio: AudioSession,
 }
 
 #[derive(Debug)]
@@ -610,6 +611,7 @@ impl LocalRuntime {
             mut child,
             path,
             selection,
+            audio,
         } = capture;
 
         if let Some(process_id) = child.id() {
@@ -617,21 +619,30 @@ impl LocalRuntime {
                 .map_err(|_| RuntimeError("pw-record process identifier overflowed".to_owned()))?;
             if let Err(error) = kill(Pid::from_raw(process_id), Signal::SIGINT) {
                 let _ = child.start_kill();
+                audio.restore().await;
                 return Err(RuntimeError(format!(
                     "could not stop microphone capture cleanly: {error}"
                 )));
             }
         }
-        if tokio::time::timeout(Duration::from_secs(3), child.wait())
-            .await
-            .is_err()
-        {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            return Err(RuntimeError(
-                "microphone capture did not stop within three seconds".to_owned(),
-            ));
+        match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                audio.restore().await;
+                return Err(RuntimeError(format!(
+                    "could not wait for microphone capture to stop: {error}"
+                )));
+            }
+            Err(_) => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                audio.restore().await;
+                return Err(RuntimeError(
+                    "microphone capture did not stop within three seconds".to_owned(),
+                ));
+            }
         }
+        audio.restore().await;
 
         let metadata = tokio::fs::metadata(&path)
             .await
@@ -691,18 +702,33 @@ impl PipelineRuntime for LocalRuntime {
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(stderr))
             .kill_on_drop(true);
-        let mut child = command
-            .spawn()
-            .map_err(|error| RuntimeError(format!("could not start pw-record: {error}")))?;
+        let settings = self.store.snapshot().await.settings;
+        let audio = AudioSession::begin(&settings).await;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                audio.restore().await;
+                return Err(RuntimeError(format!("could not start pw-record: {error}")));
+            }
+        };
         tokio::time::sleep(Duration::from_millis(75)).await;
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| RuntimeError(format!("could not inspect pw-record: {error}")))?
-        {
-            return Err(RuntimeError(format!(
-                "pw-record exited before capture began with {status}; inspect {}",
-                self.paths.runtime_dir.join("pw-record.log").display()
-            )));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                audio.restore().await;
+                return Err(RuntimeError(format!(
+                    "pw-record exited before capture began with {status}; inspect {}",
+                    self.paths.runtime_dir.join("pw-record.log").display()
+                )));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                audio.restore().await;
+                return Err(RuntimeError(format!(
+                    "could not inspect pw-record: {error}"
+                )));
+            }
         }
         let selection = if action == Action::Command {
             match read_selection().await {
@@ -710,6 +736,7 @@ impl PipelineRuntime for LocalRuntime {
                 Err(error) => {
                     let _ = child.start_kill();
                     let _ = child.wait().await;
+                    audio.restore().await;
                     let _ = tokio::fs::remove_file(&path).await;
                     return Err(error);
                 }
@@ -721,6 +748,7 @@ impl PipelineRuntime for LocalRuntime {
             child,
             path,
             selection,
+            audio,
         });
         Ok(())
     }

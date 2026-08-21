@@ -20,6 +20,7 @@ depends=(
   'ggml-cuda'
   'wtype'
   'wl-clipboard'
+  'wireplumber'
   'xdg-desktop-portal'
   'xdg-desktop-portal-hyprland'
   'curl'

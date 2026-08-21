@@ -15,6 +15,7 @@ use tokio::{
 use yap_core::{Action, Effect, Event, Phase, SessionConfig, SessionMachine};
 
 pub mod dbus;
+pub mod audio;
 pub mod model;
 pub mod polish;
 pub mod runtime;

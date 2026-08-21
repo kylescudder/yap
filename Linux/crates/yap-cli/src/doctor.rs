@@ -109,6 +109,7 @@ impl<S: System> Doctor<S> {
             self.hyprland(),
             self.global_shortcuts(),
             self.pipewire(),
+            self.playback_control(),
             self.transcriber(),
             self.language_runtime(),
             self.insertion(),
@@ -235,6 +236,24 @@ impl<S: System> Doctor<S> {
                 "Microphone runtime",
                 format!("PipeWire is not reachable: {error}"),
             ),
+        }
+    }
+
+    fn playback_control(&self) -> Check {
+        if self.system.command_exists("wpctl") && self.system.command_exists("pw-dump") {
+            check(
+                "playback_control",
+                CheckStatus::Pass,
+                "Playback control",
+                "WirePlumber volume control and playback detection are installed".to_owned(),
+            )
+        } else {
+            check(
+                "playback_control",
+                CheckStatus::Blocked,
+                "Playback control",
+                "wpctl or pw-dump is missing; reinstall the Yap package dependencies".to_owned(),
+            )
         }
     }
 
@@ -462,6 +481,8 @@ mod tests {
                     ("hyprctl".to_owned(), Ok("Hyprland 0.56.2".to_owned())),
                     ("busctl".to_owned(), Ok("GlobalShortcuts".to_owned())),
                     ("pw-cli".to_owned(), Ok("PipeWire core".to_owned())),
+                    ("pw-dump".to_owned(), Ok(String::new())),
+                    ("wpctl".to_owned(), Ok(String::new())),
                     ("whisper-server".to_owned(), Ok(String::new())),
                     ("llama-server".to_owned(), Ok(String::new())),
                     ("wtype".to_owned(), Ok(String::new())),
