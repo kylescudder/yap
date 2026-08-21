@@ -12,6 +12,7 @@ depends=(
   'gtk4'
   'gtk4-layer-shell'
   'hicolor-icon-theme'
+  'libayatana-appindicator'
   'llama-cpp'
   'pipewire-audio'
   'python-gobject'
@@ -63,12 +64,16 @@ package() {
   install -Dm755 "$srcdir/target/release/yapd" "$pkgdir/usr/bin/yapd"
   install -Dm755 "$_checkout/Linux/ui/yap-overlay" "$pkgdir/usr/bin/yap-overlay"
   install -Dm755 "$_checkout/Linux/ui/yap-ui" "$pkgdir/usr/bin/yap-ui"
+  install -Dm755 "$_checkout/Linux/ui/yap-tray" "$pkgdir/usr/bin/yap-tray"
   install -Dm644 \
     "$_checkout/Linux/packaging/systemd/yap.service" \
     "$pkgdir/usr/lib/systemd/user/yap.service"
   install -Dm644 \
     "$_checkout/Linux/packaging/systemd/yap-overlay.service" \
     "$pkgdir/usr/lib/systemd/user/yap-overlay.service"
+  install -Dm644 \
+    "$_checkout/Linux/packaging/systemd/yap-tray.service" \
+    "$pkgdir/usr/lib/systemd/user/yap-tray.service"
   install -Dm644 \
     "$_checkout/Linux/packaging/dbus/com.yap.Yap.service" \
     "$pkgdir/usr/share/dbus-1/services/com.yap.Yap.service"

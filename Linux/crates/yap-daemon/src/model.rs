@@ -48,6 +48,7 @@ const CLEANUP_MODEL: ModelSpec = ModelSpec {
 pub enum InstallOutcome {
     AlreadyPresent,
     Installed,
+    Repaired,
 }
 
 #[must_use]
@@ -65,8 +66,8 @@ pub fn cleanup_default_path() -> PathBuf {
 ///
 /// # Errors
 ///
-/// Returns an error if an existing model is corrupt, the download command fails, the downloaded
-/// digest differs, or the filesystem operation fails.
+/// Repairs a corrupt existing model. Returns an error if repair, download, verification, or the
+/// filesystem operation fails.
 pub async fn install() -> Result<InstallOutcome, RuntimeError> {
     install_model(SPEECH_MODEL).await
 }
@@ -75,21 +76,24 @@ pub async fn install() -> Result<InstallOutcome, RuntimeError> {
 ///
 /// # Errors
 ///
-/// Returns an error if an existing model is corrupt, download fails, or verification differs.
+/// Returns an error if repair, download, or verification fails.
 pub async fn install_cleanup() -> Result<InstallOutcome, RuntimeError> {
     install_model(CLEANUP_MODEL).await
 }
 
 async fn install_model(spec: ModelSpec) -> Result<InstallOutcome, RuntimeError> {
     let destination = model_path(spec);
+    let mut repairing = false;
     if destination.exists() {
         if verify(destination.clone(), spec.sha256).await? {
             return Ok(InstallOutcome::AlreadyPresent);
         }
-        return Err(RuntimeError(format!(
-            "existing model failed checksum verification: {}",
-            destination.display()
-        )));
+        tokio::fs::remove_file(&destination).await.map_err(|error| {
+            RuntimeError(format!(
+                "existing model failed verification and could not be removed for repair: {error}"
+            ))
+        })?;
+        repairing = true;
     }
 
     let parent = destination
@@ -136,7 +140,11 @@ async fn install_model(spec: ModelSpec) -> Result<InstallOutcome, RuntimeError> 
     tokio::fs::rename(&partial, &destination)
         .await
         .map_err(|error| RuntimeError(format!("could not finalize model download: {error}")))?;
-    Ok(InstallOutcome::Installed)
+    Ok(if repairing {
+        InstallOutcome::Repaired
+    } else {
+        InstallOutcome::Installed
+    })
 }
 
 async fn verify(path: PathBuf, expected_sha256: &'static str) -> Result<bool, RuntimeError> {

@@ -86,6 +86,7 @@ async fn main() -> ExitCode {
             match &speech {
                 Ok(InstallOutcome::AlreadyPresent) => println!("Speech model is already verified."),
                 Ok(InstallOutcome::Installed) => println!("Speech model installed and verified."),
+                Ok(InstallOutcome::Repaired) => println!("Speech model repaired and verified."),
                 Err(error) => eprintln!("yap: speech model installation failed: {error}"),
             }
             if speech.is_err() {
@@ -98,6 +99,10 @@ async fn main() -> ExitCode {
                     }
                     Ok(InstallOutcome::Installed) => {
                         println!("Language model installed and verified.");
+                        ExitCode::SUCCESS
+                    }
+                    Ok(InstallOutcome::Repaired) => {
+                        println!("Language model repaired and verified.");
                         ExitCode::SUCCESS
                     }
                     Err(error) => {

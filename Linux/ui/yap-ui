@@ -206,6 +206,9 @@ class Dashboard:
         self.Gio, self.GLib, self.Gtk, self.Pango = load_gtk()
         self.application = self.Gtk.Application(application_id=APPLICATION_ID)
         self.application.connect("activate", self._activate)
+        page_action = self.Gio.SimpleAction.new("page", self.GLib.VariantType.new("s"))
+        page_action.connect("activate", self._open_page_action)
+        self.application.add_action(page_action)
         self.window = None
         self.stack = None
         self.nav_buttons: dict[str, object] = {}
@@ -216,6 +219,8 @@ class Dashboard:
         self.checks_box = None
         self.refresh_button = None
         self.model_button = None
+        self.model_progress = None
+        self.model_progress_source = 0
         self.connection = None
         self.data: DataView | None = None
         self.cleanup_combo = None
@@ -317,6 +322,11 @@ class Dashboard:
             else:
                 button.remove_css_class("active")
 
+    def _open_page_action(self, _action: object, parameter: object) -> None:
+        if self.window is None:
+            self.application.activate()
+        self._navigate(None, parameter.get_string())
+
     def _page_header(self, eyebrow: str, title: str, subtitle: str) -> object:
         box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=5)
         eye = self.Gtk.Label(label=eyebrow, xalign=0)
@@ -374,11 +384,24 @@ class Dashboard:
         scroller.set_child(self.checks_box)
         page.append(scroller)
 
-        self.model_button = self.Gtk.Button(label="Install local speech model")
+        model_actions = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        model_size = self.Gtk.Label(
+            label="Local models use about 2.9 GiB: 547 MiB speech + 2.33 GiB cleanup and Command Mode.",
+            xalign=0,
+            wrap=True,
+        )
+        model_size.add_css_class("muted")
+        model_actions.append(model_size)
+        self.model_button = self.Gtk.Button(label="Install or repair local models")
         self.model_button.add_css_class("primary")
         self.model_button.connect("clicked", self._install_model)
         self.model_button.set_visible(False)
-        page.append(self.model_button)
+        model_actions.append(self.model_button)
+        self.model_progress = self.Gtk.ProgressBar(show_text=True)
+        self.model_progress.set_text("Downloading and verifying locally…")
+        self.model_progress.set_visible(False)
+        model_actions.append(self.model_progress)
+        page.append(model_actions)
         return page
 
     def _settings_page(self) -> object:
@@ -773,7 +796,10 @@ class Dashboard:
         self._set_compatibility(report.compatibility)
         needs_model = False
         for check in report.checks:
-            needs_model = needs_model or (check.summary == "Transcription model" and check.status == "setup_required")
+            needs_model = needs_model or (
+                check.summary in {"Transcription model", "Language model"}
+                and check.status == "setup_required"
+            )
             row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
             row.add_css_class("check-row")
             dot = self.Gtk.Box()
@@ -793,7 +819,10 @@ class Dashboard:
             copy.append(detail)
             row.append(copy)
             self.checks_box.append(row)
-        self.model_button.set_visible(needs_model)
+        self.model_button.set_label(
+            "Install local models" if needs_model else "Verify or repair local models"
+        )
+        self.model_button.set_visible(True)
         return self.GLib.SOURCE_REMOVE
 
     def _set_compatibility(self, compatibility: str) -> None:
@@ -805,6 +834,13 @@ class Dashboard:
     def _install_model(self, _button: object) -> None:
         self.model_button.set_sensitive(False)
         self.model_button.set_label("Installing and verifying…")
+        self.model_progress.set_visible(True)
+
+        def pulse() -> bool:
+            self.model_progress.pulse()
+            return self.GLib.SOURCE_CONTINUE
+
+        self.model_progress_source = self.GLib.timeout_add(120, pulse)
 
         def work() -> None:
             result = subprocess.run(["yap", "model", "install"], capture_output=True, text=True, check=False)
@@ -815,7 +851,11 @@ class Dashboard:
 
     def _model_finished(self, returncode: int, message: str) -> bool:
         self.model_button.set_sensitive(True)
-        self.model_button.set_label("Install local speech model")
+        self.model_button.set_label("Install or repair local models")
+        self.model_progress.set_visible(False)
+        if self.model_progress_source:
+            self.GLib.source_remove(self.model_progress_source)
+            self.model_progress_source = 0
         if returncode == 0:
             self._refresh_health()
         else:

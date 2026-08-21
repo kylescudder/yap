@@ -1,0 +1,12 @@
+[Unit]
+Description=Yap desktop status indicator
+After=graphical-session.target yap.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/yap-tray
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

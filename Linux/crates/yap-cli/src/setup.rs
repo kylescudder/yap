@@ -14,12 +14,14 @@ const SYSTEMD_ENABLE_ARGUMENTS: &[&str] = &[
     "enable",
     "yap.service",
     "yap-overlay.service",
+    "yap-tray.service",
 ];
 const SYSTEMD_RESTART_ARGUMENTS: &[&str] = &[
     "--user",
     "restart",
     "yap.service",
     "yap-overlay.service",
+    "yap-tray.service",
 ];
 
 #[derive(Debug, Eq, PartialEq)]
@@ -229,7 +231,8 @@ mod tests {
                 "--user",
                 "enable",
                 "yap.service",
-                "yap-overlay.service"
+                "yap-overlay.service",
+                "yap-tray.service"
             ]
         );
         assert_eq!(
@@ -238,7 +241,8 @@ mod tests {
                 "--user",
                 "restart",
                 "yap.service",
-                "yap-overlay.service"
+                "yap-overlay.service",
+                "yap-tray.service"
             ]
         );
     }
