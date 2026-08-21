@@ -1,6 +1,6 @@
 pkgbase = yap-dictation
 	pkgdesc = Local-first voice dictation for Wayland and Hyprland
-	pkgver = 0.0.11
+	pkgver = 0.0.12
 	pkgrel = 1
 	url = https://github.com/kylescudder/yap
 	install = yap.install
@@ -32,7 +32,7 @@ pkgbase = yap-dictation
 	conflicts = yap-linux-dev
 	conflicts = yap-linux-dev-debug
 	options = !debug
-	source = yap-dictation-0.0.11.tar.gz::https://github.com/kylescudder/yap/archive/fc1bd5a3d1df98787359187d2cf6d563f2120314.tar.gz
+	source = yap-dictation-0.0.12.tar.gz::https://github.com/kylescudder/yap/archive/fc1bd5a3d1df98787359187d2cf6d563f2120314.tar.gz
 	sha256sums = e630d8a93aeed90429e15f5cdf37310ad5adb60d0443f9edaafc1c4db8c49181
 
 pkgname = yap-dictation

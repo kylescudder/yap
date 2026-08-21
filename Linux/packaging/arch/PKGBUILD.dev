@@ -2,7 +2,7 @@
 # DEVELOPMENT PACKAGE ONLY — builds the current checkout, not an AUR release source.
 
 pkgname=yap-linux-dev
-pkgver=0.0.11.r0.glocal
+pkgver=0.0.12.r0.glocal
 pkgrel=1
 pkgdesc='Local-first voice dictation for Linux (development checkout)'
 arch=('x86_64')
@@ -39,7 +39,7 @@ pkgver() {
   local count revision
   count="$(git -C "$_checkout" rev-list --count HEAD)"
   revision="$(git -C "$_checkout" rev-parse --short HEAD)"
-  printf '0.0.11.r%s.g%s' "$count" "$revision"
+  printf '0.0.12.r%s.g%s' "$count" "$revision"
 }
 
 build() {

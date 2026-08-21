@@ -1377,11 +1377,11 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "yap-core"
-version = "0.0.11"
+version = "0.0.12"
 
 [[package]]
 name = "yap-linux-cli"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "clap",
  "serde",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "yap-linux-daemon"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "async-trait",
  "nix",
