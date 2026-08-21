@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import ctypes.util
+import math
 import sys
 from dataclasses import dataclass
 
@@ -37,12 +38,36 @@ def visual_state(phase: str, action: str, locked: bool, last_error: str) -> Visu
     return VisualState(False, "idle", "Yap is idle")
 
 
+def waveform_heights(mode: str, level: float, frame: int) -> list[int]:
+    """Map a privacy-safe microphone level to the five visible bar heights."""
+    if mode in {"recording", "locked"}:
+        # RMS is an amplitude. Speech that sounds perfectly normal commonly sits far below 0.1,
+        # so a linear pixel mapping collapses it into the five-pixel floor. Map the useful
+        # -60 dBFS to -12 dBFS range perceptually instead; values below the noise floor remain
+        # still while quiet speech gets enough travel to be visible.
+        if level <= 0.001:
+            strength = 0.0
+        else:
+            decibels = 20.0 * math.log10(min(1.0, level))
+            strength = max(0.0, min(1.0, (decibels + 60.0) / 48.0))
+        profile = (0.42, 0.72, 1.0, 0.72, 0.42)
+        return [5 + int(11 * strength * value) for value in profile]
+    if mode == "processing":
+        return [5 + (10 if (frame // 2) % 5 == index else 3) for index in range(5)]
+    if mode == "error":
+        return [5, 8, 13, 8, 5]
+    return [5] * 5
+
+
 def self_test() -> int:
     assert visual_state("idle", "", False, "") == VisualState(False, "idle", "Yap is idle")
     assert visual_state("recording", "dictation", False, "").mode == "recording"
     assert visual_state("recording-locked", "dictation", True, "").mode == "locked"
     assert visual_state("processing", "command", False, "").accessible_label.endswith("command")
     assert visual_state("idle", "", False, "microphone unavailable").mode == "error"
+    assert waveform_heights("recording", 0.0, 0) == [5] * 5
+    assert len(set(waveform_heights("recording", 0.01, 0))) > 1
+    assert waveform_heights("recording", 0.25, 0)[2] >= 15
     return 0
 
 
@@ -270,15 +295,7 @@ class OverlayApplication:
         self.frame += 1
         if self.mode in {"recording", "locked"}:
             self.level += (self.target_level - self.level) * 0.48
-            strength = min(1.0, self.level * 6.0)
-            profile = (0.42, 0.72, 1.0, 0.72, 0.42)
-            heights = [5 + int(11 * strength * value) for value in profile]
-        elif self.mode == "processing":
-            heights = [5 + (10 if (self.frame // 2) % 5 == index else 3) for index in range(5)]
-        elif self.mode == "error":
-            heights = [5, 8, 13, 8, 5]
-        else:
-            heights = [5] * 5
+        heights = waveform_heights(self.mode, self.level, self.frame)
         for bar, height in zip(self.bars, heights, strict=True):
             bar.set_size_request(3, height)
         return self.GLib.SOURCE_CONTINUE
