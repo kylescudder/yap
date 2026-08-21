@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'Linux/**'
+      - 'Scripts/accept-linux-release.sh'
       - '.github/workflows/linux-arch-package.yml'
   push:
     branches:
       - main
     paths:
       - 'Linux/**'
+      - 'Scripts/accept-linux-release.sh'
       - '.github/workflows/linux-arch-package.yml'
   workflow_dispatch:
 
@@ -91,3 +93,4 @@ jobs:
           python Linux/ui/yap-ui --self-test
           python Linux/ui/yap-tray --self-test
           bash -n Prototypes/LinuxHyprlandSpike/run.sh
+          bash -n Scripts/accept-linux-release.sh

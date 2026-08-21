@@ -57,6 +57,10 @@ output-polishing policy should remain independent of GTK, D-Bus, PipeWire, and p
 
 Publication is allowed only when all of the following are true:
 
+Run `./Scripts/accept-linux-release.sh` from the repository root against the production package to
+exercise gates 2–7 and write a privacy-safe evidence report under the user's XDG state directory.
+The script cannot replace human judgment, so declined or failed checks keep the release blocked.
+
 1. Every required capability above is complete or recorded as an intentional platform difference.
 2. The complete dictation and Command Mode paths work from user-owned Hyprland bindings.
 3. The overlay and GUI have been exercised on a real multi-workspace Hyprland session without
