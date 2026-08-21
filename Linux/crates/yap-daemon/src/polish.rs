@@ -147,19 +147,25 @@ fn replace_whole_phrase(text: &str, trigger: &str, expansion: &str) -> String {
     if trigger.is_empty() {
         return text.to_owned();
     }
+    let trigger_characters = trigger.chars().count();
+    let folded_trigger = trigger.to_lowercase();
     let mut matches = Vec::new();
     for (start, _) in text.char_indices() {
-        let end = start.saturating_add(trigger.len());
+        let remainder = &text[start..];
+        let end = remainder
+            .char_indices()
+            .nth(trigger_characters)
+            .map_or(text.len(), |(offset, _)| start + offset);
         let Some(candidate) = text.get(start..end) else {
             continue;
         };
-        if !candidate.eq_ignore_ascii_case(trigger) {
+        if candidate.to_lowercase() != folded_trigger {
             continue;
         }
         let before = text[..start].chars().next_back();
         let after = text[end..].chars().next();
-        if before.is_none_or(|character| !character.is_alphanumeric())
-            && after.is_none_or(|character| !character.is_alphanumeric())
+        if before.is_none_or(|character| !is_word_character(character))
+            && after.is_none_or(|character| !is_word_character(character))
         {
             matches.push((start, end));
         }
@@ -169,6 +175,10 @@ fn replace_whole_phrase(text: &str, trigger: &str, expansion: &str) -> String {
         result.replace_range(start..end, expansion);
     }
     result
+}
+
+fn is_word_character(character: char) -> bool {
+    character.is_alphanumeric() || character == '_'
 }
 
 #[cfg(test)]
@@ -216,6 +226,22 @@ mod tests {
         assert_eq!(
             finalize("I want to thank you for the update.", &settings(true), &[]),
             "I want to thank you for the update."
+        );
+    }
+
+    #[test]
+    fn snippet_matching_is_unicode_case_insensitive() {
+        assert_eq!(
+            replace_whole_phrase("Send my RÉSUMÉ tomorrow.", "résumé", "curriculum vitae"),
+            "Send my curriculum vitae tomorrow."
+        );
+    }
+
+    #[test]
+    fn snippet_matching_does_not_split_identifiers_at_underscores() {
+        assert_eq!(
+            replace_whole_phrase("Keep my_address unchanged.", "address", "location"),
+            "Keep my_address unchanged."
         );
     }
 }
