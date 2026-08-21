@@ -38,7 +38,7 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum ModelCommand {
-    /// Download and verify the 547 MiB large-v3-turbo Q5 model.
+    /// Download and verify the pinned speech and language models.
     Install,
 }
 
@@ -80,20 +80,30 @@ async fn main() -> ExitCode {
             command: ModelCommand::Install,
         } => {
             println!(
-                "Downloading Yap's pinned 547 MiB model from Hugging Face; speech stays local after setup."
+                "Installing Yap's pinned local models: 547 MiB for speech and 2.33 GiB for cleanup and Command Mode."
             );
-            match model::install().await {
-                Ok(InstallOutcome::AlreadyPresent) => {
-                    println!("Model is already installed and verified.");
-                    ExitCode::SUCCESS
-                }
-                Ok(InstallOutcome::Installed) => {
-                    println!("Model installed and SHA-256 verified.");
-                    ExitCode::SUCCESS
-                }
-                Err(error) => {
-                    eprintln!("yap: model installation failed: {error}");
-                    ExitCode::FAILURE
+            let speech = model::install().await;
+            match &speech {
+                Ok(InstallOutcome::AlreadyPresent) => println!("Speech model is already verified."),
+                Ok(InstallOutcome::Installed) => println!("Speech model installed and verified."),
+                Err(error) => eprintln!("yap: speech model installation failed: {error}"),
+            }
+            if speech.is_err() {
+                ExitCode::FAILURE
+            } else {
+                match model::install_cleanup().await {
+                    Ok(InstallOutcome::AlreadyPresent) => {
+                        println!("Language model is already verified.");
+                        ExitCode::SUCCESS
+                    }
+                    Ok(InstallOutcome::Installed) => {
+                        println!("Language model installed and verified.");
+                        ExitCode::SUCCESS
+                    }
+                    Err(error) => {
+                        eprintln!("yap: language model installation failed: {error}");
+                        ExitCode::FAILURE
+                    }
                 }
             }
         }

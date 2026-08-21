@@ -12,6 +12,7 @@ depends=(
   'gtk4'
   'gtk4-layer-shell'
   'hicolor-icon-theme'
+  'llama-cpp'
   'pipewire-audio'
   'python-gobject'
   'whisper-cpp'

@@ -5,7 +5,7 @@ use crate::store::{Settings, Snippet};
 /// Applies model-output cleanup, optional courtesy trimming, and snippet expansion.
 #[must_use]
 pub fn finalize(text: &str, settings: &Settings, snippets: &[Snippet]) -> String {
-    let mut result = strip_preamble(text);
+    let mut result = strip_model_preamble(text);
     if settings.trim_courtesy {
         result = trim_courtesy(&result);
     }
@@ -15,7 +15,8 @@ pub fn finalize(text: &str, settings: &Settings, snippets: &[Snippet]) -> String
     result.trim().to_owned()
 }
 
-fn strip_preamble(text: &str) -> String {
+#[must_use]
+pub fn strip_model_preamble(text: &str) -> String {
     let trimmed = text.trim();
     let Some(colon) = trimmed.find(':') else {
         return trimmed.to_owned();

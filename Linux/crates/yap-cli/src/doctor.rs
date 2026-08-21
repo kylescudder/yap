@@ -4,6 +4,7 @@ use std::{env, path::Path, process::Command};
 use std::collections::HashMap;
 
 use serde::Serialize;
+use yap_daemon::model;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -109,9 +110,11 @@ impl<S: System> Doctor<S> {
             self.global_shortcuts(),
             self.pipewire(),
             self.transcriber(),
+            self.language_runtime(),
             self.insertion(),
             self.acceleration(),
-            self.model(),
+            self.speech_model(),
+            self.cleanup_model(),
         ];
         let compatibility = compatibility(&checks);
         Report {
@@ -292,6 +295,24 @@ impl<S: System> Doctor<S> {
         }
     }
 
+    fn language_runtime(&self) -> Check {
+        if self.system.command_exists("llama-server") {
+            check(
+                "language_runtime",
+                CheckStatus::Pass,
+                "Language runtime",
+                "llama.cpp server is installed for local cleanup and Command Mode".to_owned(),
+            )
+        } else {
+            check(
+                "language_runtime",
+                CheckStatus::Blocked,
+                "Language runtime",
+                "llama-server is missing; reinstall the Yap package dependencies".to_owned(),
+            )
+        }
+    }
+
     fn acceleration(&self) -> Check {
         match self.system.run(
             "nvidia-smi",
@@ -327,7 +348,7 @@ impl<S: System> Doctor<S> {
         }
     }
 
-    fn model(&self) -> Check {
+    fn speech_model(&self) -> Check {
         let data_home = self.system.environment("XDG_DATA_HOME").unwrap_or_else(|| {
             self.system.environment("HOME").map_or_else(
                 || ".local/share".to_owned(),
@@ -351,6 +372,36 @@ impl<S: System> Doctor<S> {
                 CheckStatus::SetupRequired,
                 "Transcription model",
                 "run `yap model install` to download and verify the pinned model".to_owned(),
+            )
+        }
+    }
+
+    fn cleanup_model(&self) -> Check {
+        let data_home = self.system.environment("XDG_DATA_HOME").unwrap_or_else(|| {
+            self.system.environment("HOME").map_or_else(
+                || ".local/share".to_owned(),
+                |home| format!("{home}/.local/share"),
+            )
+        });
+        let model = Path::new(&data_home)
+            .join("yap/models")
+            .join(model::CLEANUP_MODEL_NAME)
+            .join(model::CLEANUP_MODEL_SHA256)
+            .join(model::CLEANUP_MODEL_FILE_NAME);
+        if self.system.path_exists(&model) {
+            check(
+                "cleanup_model",
+                CheckStatus::Pass,
+                "Language model",
+                format!("found {}", model.display()),
+            )
+        } else {
+            check(
+                "cleanup_model",
+                CheckStatus::SetupRequired,
+                "Language model",
+                "run `yap model install` to download and verify local cleanup and Command Mode"
+                    .to_owned(),
             )
         }
     }
@@ -412,6 +463,7 @@ mod tests {
                     ("busctl".to_owned(), Ok("GlobalShortcuts".to_owned())),
                     ("pw-cli".to_owned(), Ok("PipeWire core".to_owned())),
                     ("whisper-server".to_owned(), Ok(String::new())),
+                    ("llama-server".to_owned(), Ok(String::new())),
                     ("wtype".to_owned(), Ok(String::new())),
                     ("wl-copy".to_owned(), Ok(String::new())),
                     ("wl-paste".to_owned(), Ok(String::new())),
@@ -501,6 +553,14 @@ mod tests {
         system.paths.push(
             "/home/test/.local/share/yap/models/large-v3-turbo-q5_0/394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2/ggml-large-v3-turbo-q5_0.bin"
                 .to_owned(),
+        );
+        system.paths.push(
+            format!(
+                "/home/test/.local/share/yap/models/{}/{}/{}",
+                model::CLEANUP_MODEL_NAME,
+                model::CLEANUP_MODEL_SHA256,
+                model::CLEANUP_MODEL_FILE_NAME
+            ),
         );
         let report = Doctor::new(system).run();
         assert_eq!(report.compatibility, Compatibility::Degraded);
