@@ -17,9 +17,10 @@ use nix::{
 };
 use serde::Deserialize;
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     process::{Child, Command},
-    sync::Mutex,
+    sync::{Mutex, watch},
+    task::JoinHandle,
 };
 use yap_core::Action;
 
@@ -77,6 +78,7 @@ struct Capture {
     path: PathBuf,
     selection: Option<String>,
     audio: AudioSession,
+    level_task: JoinHandle<()>,
 }
 
 #[derive(Debug)]
@@ -566,6 +568,7 @@ pub struct LocalRuntime {
     language: Arc<LanguageEngine>,
     paths: RuntimePaths,
     store: Arc<StateStore>,
+    level_tx: watch::Sender<f64>,
 }
 
 impl LocalRuntime {
@@ -578,13 +581,21 @@ impl LocalRuntime {
         let paths = RuntimePaths::discover()?;
         let whisper = Arc::new(WhisperEngine::new(&paths)?);
         let language = Arc::new(LanguageEngine::new(&paths)?);
+        let (level_tx, _) = watch::channel(0.0);
         Ok(Arc::new(Self {
             capture: Mutex::new(None),
             whisper,
             language,
             paths,
             store,
+            level_tx,
         }))
+    }
+
+    /// Subscribes to privacy-safe microphone RMS values in the range 0 through 1.
+    #[must_use]
+    pub fn subscribe_levels(&self) -> watch::Receiver<f64> {
+        self.level_tx.subscribe()
     }
 
     /// Loads the local model before the first dictation.
@@ -612,7 +623,11 @@ impl LocalRuntime {
             path,
             selection,
             audio,
+            level_task,
         } = capture;
+
+        level_task.abort();
+        self.level_tx.send_replace(0.0);
 
         if let Some(process_id) = child.id() {
             let process_id = i32::try_from(process_id)
@@ -744,11 +759,13 @@ impl PipelineRuntime for LocalRuntime {
         } else {
             None
         };
+        let level_task = spawn_level_meter(path.clone(), self.level_tx.clone());
         *capture = Some(Capture {
             child,
             path,
             selection,
             audio,
+            level_task,
         });
         Ok(())
     }
@@ -812,6 +829,41 @@ impl PipelineRuntime for LocalRuntime {
             }
         }
     }
+}
+
+fn spawn_level_meter(path: PathBuf, levels: watch::Sender<f64>) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            if let Some(level) = recent_wave_level(&path).await {
+                levels.send_replace(level);
+            }
+            tokio::time::sleep(Duration::from_millis(70)).await;
+        }
+    })
+}
+
+async fn recent_wave_level(path: &Path) -> Option<f64> {
+    let mut file = tokio::fs::File::open(path).await.ok()?;
+    let length = file.metadata().await.ok()?.len();
+    if length <= 44 {
+        return Some(0.0);
+    }
+    let start = length.saturating_sub(4_096).max(44);
+    file.seek(std::io::SeekFrom::Start(start)).await.ok()?;
+    let mut samples = Vec::with_capacity(usize::try_from(length - start).ok()?);
+    file.read_to_end(&mut samples).await.ok()?;
+    pcm_s16le_rms(&samples)
+}
+
+fn pcm_s16le_rms(bytes: &[u8]) -> Option<f64> {
+    let mut count = 0_u64;
+    let mut sum_squares = 0.0;
+    for sample in bytes.chunks_exact(2) {
+        let value = f64::from(i16::from_le_bytes([sample[0], sample[1]])) / 32_768.0;
+        sum_squares += value * value;
+        count += 1;
+    }
+    (count > 0).then(|| (sum_squares / count as f64).sqrt().clamp(0.0, 1.0))
 }
 
 async fn active_app_context() -> AppContext {
@@ -1085,6 +1137,20 @@ mod tests {
         assert_eq!(categorize_app(Some("com.mitchellh.ghostty")), AppCategory::Code);
         assert_eq!(categorize_app(Some("md.obsidian.Obsidian")), AppCategory::Notes);
         assert_eq!(categorize_app(Some("firefox")), AppCategory::Other);
+    }
+
+    #[test]
+    fn microphone_meter_reports_pcm_rms_without_exposing_samples() {
+        let samples = [
+            i16::MAX.to_le_bytes(),
+            i16::MIN.to_le_bytes(),
+            0_i16.to_le_bytes(),
+            0_i16.to_le_bytes(),
+        ]
+        .concat();
+        let level = pcm_s16le_rms(&samples).expect("samples produce a level");
+        assert!((level - f64::sqrt(0.5)).abs() < 0.001);
+        assert_eq!(pcm_s16le_rms(&[]), None);
     }
 
     #[test]

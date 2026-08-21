@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use yap_core::Action;
 use zbus::{connection, fdo, object_server::SignalEmitter};
+use tokio::sync::watch;
 
 use crate::{
     BUS_NAME, Coordinator, INTERFACE_NAME, OBJECT_PATH, PipelineRuntime, Status,
@@ -106,6 +107,9 @@ impl DictationInterface {
 
     #[zbus(signal)]
     async fn data_changed(emitter: &SignalEmitter<'_>, data_json: &str) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn level_changed(emitter: &SignalEmitter<'_>, level: f64) -> zbus::Result<()>;
 }
 
 async fn public_state_json(store: &StateStore) -> fdo::Result<String> {
@@ -144,6 +148,7 @@ fn parse_action(value: &str) -> fdo::Result<Action> {
 pub async fn serve(
     runtime: Arc<dyn PipelineRuntime>,
     store: Arc<StateStore>,
+    mut levels: watch::Receiver<f64>,
 ) -> zbus::Result<()> {
     let coordinator = Coordinator::new(runtime);
     let mut statuses = coordinator.subscribe();
@@ -175,6 +180,15 @@ pub async fn serve(
             .await
             {
                 eprintln!("yapd: could not publish state on {INTERFACE_NAME}: {error}");
+            }
+        }
+    });
+    let level_emitter = interface.signal_emitter().clone();
+    tokio::spawn(async move {
+        while levels.changed().await.is_ok() {
+            let level = *levels.borrow_and_update();
+            if let Err(error) = DictationInterface::level_changed(&level_emitter, level).await {
+                eprintln!("yapd: could not publish microphone level: {error}");
             }
         }
     });

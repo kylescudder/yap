@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ctypes
 import ctypes.util
-import math
 import sys
 from dataclasses import dataclass
 
@@ -113,6 +112,8 @@ class OverlayApplication:
         self.bars: list[object] = []
         self.mode = "idle"
         self.frame = 0
+        self.level = 0.0
+        self.target_level = 0.0
         self.error_generation = 0
         self.connection = None
 
@@ -186,6 +187,15 @@ class OverlayApplication:
                 self.Gio.DBusSignalFlags.NONE,
                 self._state_changed,
             )
+            self.connection.signal_subscribe(
+                BUS_NAME,
+                INTERFACE_NAME,
+                "LevelChanged",
+                OBJECT_PATH,
+                None,
+                self.Gio.DBusSignalFlags.NONE,
+                self._level_changed,
+            )
             result = self.connection.call_sync(
                 BUS_NAME,
                 OBJECT_PATH,
@@ -214,9 +224,24 @@ class OverlayApplication:
     ) -> None:
         self._render(*parameters.unpack())
 
+    def _level_changed(
+        self,
+        _connection: object,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        _signal: str,
+        parameters: object,
+        *_user_data: object,
+    ) -> None:
+        (level,) = parameters.unpack()
+        self.target_level = max(0.0, min(1.0, float(level)))
+
     def _render(self, phase: str, action: str, locked: bool, last_error: str) -> None:
         visual = visual_state(phase, action, locked, last_error)
         self.mode = visual.mode
+        if visual.mode not in {"recording", "locked"}:
+            self.target_level = 0.0
         self.window.update_property(
             [self.Gtk.AccessibleProperty.LABEL],
             [visual.accessible_label],
@@ -244,7 +269,10 @@ class OverlayApplication:
     def _animate(self) -> bool:
         self.frame += 1
         if self.mode in {"recording", "locked"}:
-            heights = [5 + int(11 * abs(math.sin(self.frame * 0.24 + index * 0.78))) for index in range(5)]
+            self.level += (self.target_level - self.level) * 0.48
+            strength = min(1.0, self.level * 6.0)
+            profile = (0.42, 0.72, 1.0, 0.72, 0.42)
+            heights = [5 + int(11 * strength * value) for value in profile]
         elif self.mode == "processing":
             heights = [5 + (10 if (self.frame // 2) % 5 == index else 3) for index in range(5)]
         elif self.mode == "error":
