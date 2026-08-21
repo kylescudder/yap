@@ -30,7 +30,6 @@ depends=(
 )
 optdepends=('ggml-cuda: NVIDIA CUDA acceleration for both local models')
 makedepends=('cargo')
-provides=('yap')
 conflicts=('yap' 'yap-linux-dev' 'yap-linux-dev-debug')
 options=('!debug')
 install=yap.install

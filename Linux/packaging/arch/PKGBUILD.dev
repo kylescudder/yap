@@ -27,8 +27,8 @@ depends=(
   'curl'
 )
 makedepends=('cargo' 'git')
-provides=('yap')
-conflicts=('yap' 'yap-dictation')
+provides=('yap-dictation')
+conflicts=('yap' 'yap-dictation' 'yap-dictation-debug')
 options=('!debug')
 source=()
 sha256sums=()

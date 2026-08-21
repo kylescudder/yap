@@ -27,7 +27,6 @@ pkgbase = yap-dictation
 	depends = xdg-desktop-portal
 	depends = xdg-desktop-portal-hyprland
 	optdepends = ggml-cuda: NVIDIA CUDA acceleration for both local models
-	provides = yap
 	conflicts = yap
 	conflicts = yap-linux-dev
 	conflicts = yap-linux-dev-debug
