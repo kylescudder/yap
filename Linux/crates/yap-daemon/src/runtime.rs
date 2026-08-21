@@ -2,8 +2,8 @@
 
 use std::{
     ffi::OsString,
-    fs::{File, OpenOptions, Permissions},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    fs::{DirBuilder, File, OpenOptions, Permissions},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -54,22 +54,73 @@ impl RuntimePaths {
             || std::env::temp_dir().join(format!("yap-{}", Uid::current().as_raw())),
             |base| PathBuf::from(base).join("yap"),
         );
-        std::fs::create_dir_all(&runtime_dir).map_err(|error| {
-            RuntimeError(format!(
-                "could not create the private runtime directory: {error}"
-            ))
-        })?;
-        std::fs::set_permissions(&runtime_dir, Permissions::from_mode(0o700)).map_err(|error| {
-            RuntimeError(format!(
-                "could not secure the private runtime directory: {error}"
-            ))
-        })?;
+        secure_runtime_directory(&runtime_dir)?;
         Ok(Self {
             runtime_dir,
             model: model::default_path(),
             language_model: model::cleanup_default_path(),
         })
     }
+}
+
+fn secure_runtime_directory(path: &Path) -> Result<(), RuntimeError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => validate_runtime_directory(path, &metadata)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            DirBuilder::new().mode(0o700).create(path).map_err(|error| {
+                RuntimeError(format!(
+                    "could not create the private runtime directory {}: {error}",
+                    path.display()
+                ))
+            })?;
+        }
+        Err(error) => {
+            return Err(RuntimeError(format!(
+                "could not inspect the private runtime directory {}: {error}",
+                path.display()
+            )));
+        }
+    }
+    std::fs::set_permissions(path, Permissions::from_mode(0o700)).map_err(|error| {
+        RuntimeError(format!(
+            "could not secure the private runtime directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        RuntimeError(format!(
+            "could not verify the private runtime directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    validate_runtime_directory(path, &metadata)
+}
+
+fn validate_runtime_directory(
+    path: &Path,
+    metadata: &std::fs::Metadata,
+) -> Result<(), RuntimeError> {
+    if metadata.file_type().is_symlink() {
+        return Err(RuntimeError(format!(
+            "private runtime path is a symbolic link: {}",
+            path.display()
+        )));
+    }
+    if !metadata.is_dir() {
+        return Err(RuntimeError(format!(
+            "private runtime path is not a directory: {}",
+            path.display()
+        )));
+    }
+    let current_uid = Uid::current().as_raw();
+    if metadata.uid() != current_uid {
+        return Err(RuntimeError(format!(
+            "private runtime directory {} is owned by uid {}, expected {current_uid}",
+            path.display(),
+            metadata.uid()
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1228,6 +1279,31 @@ mod tests {
         assert!(path.is_file());
         drop(audio);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn runtime_directory_is_private_and_owned_by_the_current_user() {
+        let path = temporary_audio_path("runtime-directory");
+        secure_runtime_directory(&path).expect("private runtime directory is created");
+        let metadata = std::fs::symlink_metadata(&path).expect("runtime directory exists");
+        assert!(metadata.is_dir());
+        assert_eq!(metadata.uid(), Uid::current().as_raw());
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        std::fs::remove_dir(&path).expect("runtime test directory is removed");
+    }
+
+    #[test]
+    fn runtime_directory_rejects_a_symbolic_link() {
+        let target = temporary_audio_path("runtime-target");
+        let link = temporary_audio_path("runtime-link");
+        std::fs::create_dir(&target).expect("runtime target is created");
+        std::os::unix::fs::symlink(&target, &link).expect("runtime link is created");
+
+        let error = secure_runtime_directory(&link).expect_err("symbolic link is rejected");
+        assert!(error.0.contains("symbolic link"));
+
+        std::fs::remove_file(&link).expect("runtime link is removed");
+        std::fs::remove_dir(&target).expect("runtime target is removed");
     }
 
     #[tokio::test]
