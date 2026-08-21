@@ -2,11 +2,15 @@
 # PROTOTYPE ONLY — disposable Linux feasibility probe for Yap.
 
 set -uo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SCRIPT_PATH="$SCRIPT_DIR/run.sh"
-RUNTIME_BASE="${XDG_RUNTIME_DIR:-/tmp}"
-RUNTIME_DIR="$RUNTIME_BASE/yap-linux-spike-${UID}"
+if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+    RUNTIME_DIR="$XDG_RUNTIME_DIR/yap-linux-spike-${UID}"
+else
+    RUNTIME_DIR="$(mktemp -d -p "${TMPDIR:-/tmp}" "yap-linux-spike-${UID}.XXXXXX")"
+fi
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/yap-prototype"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/yap"
 HYPR_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
@@ -31,7 +35,15 @@ SERVER_PID=""
 RECORDER_PID=""
 
 ensure_runtime() {
-    mkdir -p "$RUNTIME_DIR"
+    if [[ -L "$RUNTIME_DIR" ]]; then
+        printf 'Refusing symlink runtime directory: %s\n' "$RUNTIME_DIR" >&2
+        return 1
+    fi
+    install -d -m 700 "$RUNTIME_DIR"
+    if [[ "$(stat -c %u "$RUNTIME_DIR")" != "$UID" ]]; then
+        printf 'Runtime directory is not owned by the current user: %s\n' "$RUNTIME_DIR" >&2
+        return 1
+    fi
     touch "$EVENT_LOG" "$RESULT_LOG"
 }
 
@@ -41,7 +53,7 @@ event_command() {
         press|release) ;;
         *) exit 2 ;;
     esac
-    ensure_runtime
+    ensure_runtime || exit 1
     printf '%s\t%s\n' "$(date +%s%N)" "$edge" >> "$EVENT_LOG"
 }
 
@@ -51,7 +63,7 @@ if [[ "${1:-}" == "event" ]]; then
     exit $?
 fi
 
-ensure_runtime
+ensure_runtime || exit 1
 
 section() {
     printf '\n\033[1;36m%s\033[0m\n' "$1"
@@ -315,7 +327,7 @@ end_to_end_benchmark() {
         local transcript
         local elapsed
         started_ns="$(date +%s%N)"
-        if ! curl -sS \
+        if ! curl --fail --silent --show-error \
             -o "$response" \
             -H 'Content-Type: multipart/form-data' \
             -F "file=@$AUDIO_FILE" \
@@ -331,7 +343,12 @@ import json
 import pathlib
 import sys
 payload = json.loads(pathlib.Path(sys.argv[1]).read_text())
-print(payload.get("text") or payload.get("transcription") or payload)
+if not isinstance(payload, dict):
+    raise SystemExit("inference response is not an object")
+text = payload.get("text") or payload.get("transcription")
+if not isinstance(text, str) or not text.strip():
+    raise SystemExit("inference response contains no transcript")
+print(text)
 PY
 )"
         transcript="$(printf '%s' "$transcript" | tr '\n' ' ')"
@@ -397,7 +414,7 @@ start_server() {
             record_result "whisper-server" "FAIL" "Server exited while loading the model; inspect $SERVER_LOG"
             return 1
         fi
-        if curl -sS -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; then
+        if curl --fail --silent --show-error -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; then
             record_result "whisper-server" "PASS" "Warm context ready on loopback port $port"
             return 0
         fi
@@ -431,7 +448,7 @@ PY
     for iteration in 0 1 2 3 4 5; do
         local response="$RUNTIME_DIR/inference-$iteration.json"
         local seconds
-        seconds="$(curl -sS \
+        seconds="$(curl --fail --silent --show-error \
             -o "$response" \
             -w '%{time_total}' \
             -H 'Content-Type: multipart/form-data' \
@@ -452,10 +469,12 @@ import pathlib
 import sys
 
 payload = json.loads(pathlib.Path(sys.argv[1]).read_text())
-if isinstance(payload, dict):
-    print(payload.get("text") or payload.get("transcription") or payload)
-else:
-    print(payload)
+if not isinstance(payload, dict):
+    raise SystemExit("inference response is not an object")
+text = payload.get("text") or payload.get("transcription")
+if not isinstance(text, str) or not text.strip():
+    raise SystemExit("inference response contains no transcript")
+print(text)
 PY
 )"
         if ((iteration == 0)); then
@@ -480,7 +499,7 @@ print(f"p50={statistics.median(values):.3f}s p95={p95:.3f}s min={min(values):.3f
 PY
 )"
 
-    if grep -Eqi 'cuda|nvidia' "$SERVER_LOG"; then
+    if grep -Eqi 'ggml_cuda_init: found [1-9][0-9]* CUDA device|loaded CUDA backend|using CUDA[0-9]+ backend' "$SERVER_LOG"; then
         record_result "cuda-backend" "PASS" "whisper.cpp log reports CUDA/NVIDIA initialization"
     else
         record_result "cuda-backend" "WARN" "CUDA was not evident in the server log"
@@ -653,7 +672,19 @@ Commands:
 EOF
 }
 
-trap stop_children EXIT INT TERM
+on_interrupt() {
+    stop_children
+    exit 130
+}
+
+on_terminate() {
+    stop_children
+    exit 143
+}
+
+trap stop_children EXIT
+trap on_interrupt INT
+trap on_terminate TERM
 
 case "${1:-guided}" in
     guided) guided ;;
