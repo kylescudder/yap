@@ -485,6 +485,12 @@ mod tests {
     #[tokio::test]
     async fn snippets_expand_case_insensitive_whole_phrases() {
         let store = StateStore::open(test_path("snippet-expansion")).expect("store opens");
+        let mut settings = Settings::default();
+        settings.trim_courtesy = false;
+        store
+            .update_settings(settings)
+            .await
+            .expect("courtesy policy can be isolated from snippet expansion");
         store
             .save_snippet(None, "my address", "42 Yap Street")
             .await
