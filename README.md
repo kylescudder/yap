@@ -141,8 +141,9 @@ On first launch, grant Microphone, Accessibility, and Input Monitoring. Then hol
 Right Shift binding to dictate, double-tap for hands-free mode, or hold Right Option for Command
 Mode. The menu-bar icon opens settings, history, and snippets.
 
-macOS releases update through Sparkle. Maintainers create a notarized release with
-`./Scripts/release.sh` and a configured Developer ID certificate and `YapNotary` keychain profile.
+Pushing a matching `vMAJOR.MINOR.PATCH` tag creates one GitHub Release after validating and building
+the Arch package and notarizing the macOS app. The release carries the Arch package and checksum,
+macOS DMG and ZIP, and Sparkle appcast. AUR publication remains a separate maintainer action.
 
 ## How it stays local
 

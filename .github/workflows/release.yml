@@ -1,7 +1,7 @@
 name: Release
 
-# Cuts a notarized, Sparkle-signed release and publishes it to GitHub Releases
-# whenever a v* tag is pushed (e.g. `git tag v0.0.1 && git push origin v0.0.1`).
+# Validates and builds the Arch package, then cuts a notarized, Sparkle-signed macOS release and
+# publishes both platforms to GitHub Releases whenever a v* tag is pushed.
 #
 # Required repository secrets:
 #   DEVELOPER_ID_P12_BASE64    base64 of your "Developer ID Application" .p12
@@ -22,7 +22,153 @@ permissions:
   contents: write
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag and source contract
+        run: |
+          python3 <<'PY'
+          import os
+          import plistlib
+          import re
+          import subprocess
+          from pathlib import Path
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          if re.fullmatch(r"v\d+\.\d+\.\d+", tag) is None:
+              raise SystemExit(f"release tag must be vMAJOR.MINOR.PATCH, got {tag!r}")
+          expected = tag.removeprefix("v")
+
+          with Path("Bundle/Info.plist").open("rb") as handle:
+              macos = plistlib.load(handle)["CFBundleShortVersionString"]
+          cargo_text = Path("Linux/Cargo.toml").read_text()
+          cargo = re.search(r'^version\s*=\s*"([^"]+)"', cargo_text, re.MULTILINE)
+          srcinfo_text = Path("Linux/packaging/arch/.SRCINFO").read_text()
+          arch = re.search(r"^\s*pkgver\s*=\s*(\S+)", srcinfo_text, re.MULTILINE)
+          pkgbuild_text = Path("Linux/packaging/arch/PKGBUILD").read_text()
+          source = re.search(r"^_commit='([0-9a-f]{40})'$", pkgbuild_text, re.MULTILINE)
+          if cargo is None or arch is None or source is None:
+              raise SystemExit("could not read one or more release versions from source control")
+
+          versions = {"tag": expected, "macOS": macos, "Rust": cargo.group(1), "Arch": arch.group(1)}
+          if any(version != expected for version in versions.values()):
+              raise SystemExit(f"release versions do not match: {versions}")
+
+          source_commit = source.group(1)
+          subprocess.run(
+              ["git", "merge-base", "--is-ancestor", source_commit, os.environ["GITHUB_SHA"]],
+              check=True,
+          )
+          changed = subprocess.run(
+              ["git", "diff", "--name-only", source_commit, os.environ["GITHUB_SHA"], "--", "Linux"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          allowed = {
+              "Linux/packaging/arch/.SRCINFO",
+              "Linux/packaging/arch/PKGBUILD",
+              "Linux/packaging/arch/README.md",
+          }
+          unexpected = sorted(set(changed) - allowed)
+          if unexpected:
+              raise SystemExit(
+                  "production PKGBUILD does not include these Linux release changes: "
+                  + ", ".join(unexpected)
+              )
+          print(f"release contract is consistent for {tag}; Arch source is {source_commit}")
+          PY
+
+  linux-package:
+    needs: version
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Update build image
+        run: |
+          printf '%s\n' \
+            'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' \
+            > /etc/pacman.d/mirrorlist
+          for attempt in 1 2 3; do
+            if pacman -Syyu --noconfirm git sudo python; then
+              exit 0
+            fi
+            sleep "$((attempt * 10))"
+          done
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Configure unprivileged package builder
+        run: |
+          useradd --create-home builder
+          printf 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman\n' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Verify AUR metadata
+        run: |
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          su builder --shell /bin/bash --command \
+            "cd '$package_dir' && makepkg --printsrcinfo" > /tmp/yap.SRCINFO
+          diff -u "$package_dir/.SRCINFO" /tmp/yap.SRCINFO
+
+      - name: Build and test production package
+        run: |
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          su builder --shell /bin/bash --command \
+            "cd '$package_dir' && makepkg --syncdeps --noconfirm --cleanbuild --clean --force"
+
+      - name: Verify CPU package and stage release assets
+        run: |
+          set -euo pipefail
+          package_dir="$GITHUB_WORKSPACE/Linux/packaging/arch"
+          release_version="${GITHUB_REF_NAME#v}"
+          packages=("$package_dir"/yap-dictation-"$release_version"-*.pkg.tar.zst)
+          if [[ ${#packages[@]} -ne 1 || ! -f "${packages[0]}" ]]; then
+            printf 'expected one production package, found: %s\n' "${packages[*]}"
+            exit 1
+          fi
+          if pacman -Q ggml-cuda >/dev/null 2>&1; then
+            echo 'ggml-cuda must remain optional'
+            exit 1
+          fi
+          pacman -U --noconfirm "${packages[0]}"
+          test "$(yap --version)" = "yap $release_version"
+          test "$(yapctl --version)" = "yapctl $release_version"
+          test -x /usr/bin/yapd
+          test -x /usr/bin/yap-overlay
+          test -x /usr/bin/yap-ui
+          test -x /usr/bin/yap-tray
+          test -f /usr/lib/systemd/user/yap.service
+          test -f /usr/lib/systemd/user/yap-overlay.service
+          test -f /usr/lib/systemd/user/yap-tray.service
+          test -f /usr/share/dbus-1/services/com.yap.Yap.service
+          test -f /usr/share/applications/com.yap.Yap.Dashboard.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg
+          python Linux/ui/yap-overlay --self-test
+          python Linux/ui/yap-ui --self-test
+          python Linux/ui/yap-tray --self-test
+
+          install -d "$GITHUB_WORKSPACE/dist/linux"
+          install -m 0644 "${packages[0]}" "$GITHUB_WORKSPACE/dist/linux/"
+          package_name="$(basename "${packages[0]}")"
+          cd "$GITHUB_WORKSPACE/dist/linux"
+          sha256sum "$package_name" > "$package_name.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: dist/linux/*
+          if-no-files-found: error
+          retention-days: 14
+
   release:
+    needs: [version, linux-package]
     # Needs an Xcode with the macOS 26 SDK (Foundation Models). If the macos-26 image
     # isn't available, switch to macos-15 and add maxim-lobanov/setup-xcode for Xcode 26.
     runs-on: macos-26
@@ -56,3 +202,21 @@ jobs:
 
       - name: Build, notarize, and publish
         run: ./Scripts/release.sh "${GITHUB_REF_NAME#v}"
+
+  attach-linux:
+    needs: [linux-package, release]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-release
+          path: dist/linux
+
+      - name: Attach Arch package to GitHub Release
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$GITHUB_REF_NAME" dist/linux/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

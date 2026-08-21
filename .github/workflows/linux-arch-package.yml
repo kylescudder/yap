@@ -5,12 +5,14 @@ on:
     paths:
       - 'Linux/**'
       - '.github/workflows/linux-arch-package.yml'
+      - '.github/workflows/release.yml'
   push:
     branches:
       - main
     paths:
       - 'Linux/**'
       - '.github/workflows/linux-arch-package.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
