@@ -62,16 +62,52 @@ jobs:
           su builder --shell /bin/bash --command \
             "cd '$package_dir' && makepkg --syncdeps --noconfirm --cleanbuild --clean --force"
 
-      - name: Verify CPU base package
+      - name: Verify reinstall, uninstall, and CPU base package
         run: |
+          set -euo pipefail
+          current_packages=(
+            "$GITHUB_WORKSPACE"/Linux/packaging/arch/yap-dictation-*.pkg.tar.zst
+          )
+          if [[ ${#current_packages[@]} -ne 1 || ! -f "${current_packages[0]}" ]]; then
+            printf 'expected one current package, found: %s\n' "${current_packages[*]}"
+            exit 1
+          fi
           if pacman -Q ggml-cuda >/dev/null 2>&1; then
             echo 'ggml-cuda must remain optional'
             exit 1
           fi
-          pacman -U --noconfirm \
-            "$GITHUB_WORKSPACE"/Linux/packaging/arch/yap-dictation-*.pkg.tar.zst
+
+          # The official Arch container excludes /usr/share/doc to stay small.
+          # Lifecycle validation needs a normal extraction policy so package
+          # integrity includes Yap's installed README.
+          lifecycle_pacman_conf="$RUNNER_TEMP/pacman-lifecycle.conf"
+          cp /etc/pacman.conf "$lifecycle_pacman_conf"
+          sed -i '/^NoExtract.*usr\/share\/doc/s/^/# lifecycle test: /' \
+            "$lifecycle_pacman_conf"
+          ! grep -E '^NoExtract.*usr/share/doc' "$lifecycle_pacman_conf"
+
           expected_version="$(sed -n 's/^[[:space:]]*pkgver = //p' \
             "$GITHUB_WORKSPACE/Linux/packaging/arch/.SRCINFO" | head -n 1)"
+          pacman --config "$lifecycle_pacman_conf" -U --noconfirm \
+            "${current_packages[0]}"
+          test "$(yap --version)" = "yap $expected_version"
+
+          state_dir=/home/builder/.local/share/yap
+          state_file="$state_dir/state.json"
+          install -d -m 0700 -o builder -g builder "$state_dir"
+          printf '%s\n' \
+            '{"version":1,"settings":{"cleanup_intensity":"high","audio_mode":"lower","duck_level":0.25,"trim_courtesy":false},"snippets":[{"id":7,"trigger":"release proof","expansion":"state survived"}],"history":[{"id":8,"text":"private lifecycle fixture","app_name":"CI","created_unix_ms":1}],"next_id":9}' \
+            > "$state_file"
+          chown builder:builder "$state_file"
+          chmod 0600 "$state_file"
+          su builder --shell /bin/bash --command \
+            "python -m json.tool '$state_file' >/dev/null"
+          state_sha256="$(sha256sum "$state_file" | cut -d ' ' -f 1)"
+
+          reinstall_log="$RUNNER_TEMP/yap-reinstall.log"
+          pacman --config "$lifecycle_pacman_conf" -U --noconfirm \
+            "${current_packages[0]}" | tee "$reinstall_log"
+          grep -F 'Yap was upgraded.' "$reinstall_log"
           test "$(yap --version)" = "yap $expected_version"
           test "$(yapctl --version)" = "yapctl $expected_version"
           test -x /usr/bin/yapd
@@ -84,6 +120,26 @@ jobs:
           test -f /usr/share/dbus-1/services/com.yap.Yap.service
           test -f /usr/share/applications/com.yap.Yap.Dashboard.desktop
           test -f /usr/share/icons/hicolor/scalable/apps/com.yap.Yap.svg
+          test -f /usr/share/doc/yap-dictation/README.md
+          test "$(sha256sum "$state_file" | cut -d ' ' -f 1)" = "$state_sha256"
+          pacman --config "$lifecycle_pacman_conf" -Qkk yap-dictation
+
+          pacman --config "$lifecycle_pacman_conf" -R --noconfirm yap-dictation
+          ! pacman -Q yap-dictation
+          test ! -e /usr/bin/yap
+          test ! -e /usr/bin/yapctl
+          test ! -e /usr/bin/yapd
+          test ! -e /usr/lib/systemd/user/yap.service
+          test ! -e /usr/share/applications/com.yap.Yap.Dashboard.desktop
+          test ! -e /usr/share/doc/yap-dictation/README.md
+          test "$(sha256sum "$state_file" | cut -d ' ' -f 1)" = "$state_sha256"
+
+          pacman --config "$lifecycle_pacman_conf" -U --noconfirm \
+            "${current_packages[0]}"
+          test "$(yap --version)" = "yap $expected_version"
+          test -f /usr/share/doc/yap-dictation/README.md
+          test "$(sha256sum "$state_file" | cut -d ' ' -f 1)" = "$state_sha256"
+          pacman --config "$lifecycle_pacman_conf" -Qkk yap-dictation
 
       - name: Verify current Linux source
         run: |
