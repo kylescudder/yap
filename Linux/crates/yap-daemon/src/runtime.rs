@@ -75,7 +75,7 @@ impl RuntimePaths {
 #[derive(Debug)]
 struct Capture {
     child: Child,
-    path: PathBuf,
+    audio_file: PrivateAudioFile,
     selection: Option<String>,
     audio: AudioSession,
     level_task: JoinHandle<()>,
@@ -83,8 +83,66 @@ struct Capture {
 
 #[derive(Debug)]
 struct CompletedCapture {
-    path: PathBuf,
+    audio_file: PrivateAudioFile,
     selection: Option<String>,
+}
+
+/// Owns one private capture file and removes it on every exit path unless removal succeeded
+/// explicitly. `Drop` is intentionally synchronous: it is the last privacy backstop during
+/// unwinding or daemon shutdown, when the async runtime may no longer accept cleanup work.
+#[derive(Debug)]
+struct PrivateAudioFile {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl PrivateAudioFile {
+    fn create(path: PathBuf) -> Result<Self, RuntimeError> {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(RuntimeError(format!(
+                    "could not clear stale captured audio: {error}"
+                )));
+            }
+        }
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|error| RuntimeError(format!("could not create captured audio: {error}")))?;
+        Ok(Self { path, armed: true })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    async fn remove(mut self) -> Result<(), RuntimeError> {
+        match tokio::fs::remove_file(&self.path).await {
+            Ok(()) => {
+                self.armed = false;
+                Ok(())
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.armed = false;
+                Ok(())
+            }
+            Err(error) => Err(RuntimeError(format!(
+                "could not remove private captured audio: {error}"
+            ))),
+        }
+    }
+}
+
+impl Drop for PrivateAudioFile {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -623,7 +681,7 @@ impl LocalRuntime {
             .ok_or_else(|| RuntimeError("no microphone capture is active".to_owned()))?;
         let Capture {
             mut child,
-            path,
+            audio_file,
             selection,
             audio,
             level_task,
@@ -661,16 +719,10 @@ impl LocalRuntime {
             }
         }
         audio.restore().await;
-
-        let metadata = tokio::fs::metadata(&path)
-            .await
-            .map_err(|error| RuntimeError(format!("captured audio is unavailable: {error}")))?;
-        if metadata.len() <= 44 {
-            return Err(RuntimeError(
-                "microphone capture contained no usable audio".to_owned(),
-            ));
-        }
-        Ok(CompletedCapture { path, selection })
+        Ok(CompletedCapture {
+            audio_file,
+            selection,
+        })
     }
 }
 
@@ -687,21 +739,7 @@ impl PipelineRuntime for LocalRuntime {
             Action::Dictation => "dictation.wav",
             Action::Command => "command.wav",
         });
-        match tokio::fs::remove_file(&path).await {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(RuntimeError(format!(
-                    "could not clear stale captured audio: {error}"
-                )));
-            }
-        }
-        OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&path)
-            .map_err(|error| RuntimeError(format!("could not create captured audio: {error}")))?;
+        let audio_file = PrivateAudioFile::create(path.clone())?;
 
         let log = secure_file(&self.paths.runtime_dir.join("pw-record.log"))?;
         let stderr = log
@@ -765,7 +803,7 @@ impl PipelineRuntime for LocalRuntime {
         let level_task = spawn_level_meter(path.clone(), self.level_tx.clone());
         *capture = Some(Capture {
             child,
-            path,
+            audio_file,
             selection,
             audio,
             level_task,
@@ -775,20 +813,31 @@ impl PipelineRuntime for LocalRuntime {
 
     async fn discard_capture(&self) -> Result<(), RuntimeError> {
         let capture = self.stop_capture().await?;
-        tokio::fs::remove_file(capture.path)
-            .await
-            .map_err(|error| RuntimeError(format!("could not discard captured audio: {error}")))
+        capture.audio_file.remove().await
     }
 
     async fn stop_and_process(&self, action: Action) -> Result<(), RuntimeError> {
         let capture = self.stop_capture().await?;
+        let metadata = match tokio::fs::metadata(capture.audio_file.path()).await {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let _ = capture.audio_file.remove().await;
+                return Err(RuntimeError(format!(
+                    "captured audio is unavailable: {error}"
+                )));
+            }
+        };
+        if metadata.len() <= 44 {
+            let _ = capture.audio_file.remove().await;
+            return Err(RuntimeError(
+                "microphone capture contained no usable audio".to_owned(),
+            ));
+        }
         let context = active_app_context().await;
-        let transcription = self.whisper.transcribe(&capture.path).await;
-        let cleanup = tokio::fs::remove_file(&capture.path).await;
+        let transcription = self.whisper.transcribe(capture.audio_file.path()).await;
+        let cleanup = capture.audio_file.remove().await;
         let text = transcription?;
-        cleanup.map_err(|error| {
-            RuntimeError(format!("could not remove private captured audio: {error}"))
-        })?;
+        cleanup?;
         if text.trim().is_empty() {
             return Ok(());
         }
@@ -1141,6 +1190,26 @@ fn secure_file(path: &Path) -> Result<File, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temporary_audio_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "yap-private-audio-test-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("valid clock")
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn private_audio_guard_removes_capture_on_early_exit() {
+        let path = temporary_audio_path("drop");
+        let audio = PrivateAudioFile::create(path.clone()).expect("private capture is created");
+        assert!(path.is_file());
+        drop(audio);
+        assert!(!path.exists());
+    }
 
     #[tokio::test]
     async fn insertion_input_reaches_eof_before_waiting_for_child() {

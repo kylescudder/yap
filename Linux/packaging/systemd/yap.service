@@ -6,6 +6,7 @@ After=graphical-session.target pipewire.service
 Type=dbus
 BusName=com.yap.Yap
 ExecStart=/usr/bin/yapd
+ExecStop=-/usr/bin/yapctl cancel
 Restart=on-failure
 RestartSec=2
 

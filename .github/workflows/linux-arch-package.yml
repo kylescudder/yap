@@ -75,6 +75,7 @@ jobs:
           test -x /usr/bin/yap-ui
           test -x /usr/bin/yap-tray
           test -f /usr/lib/systemd/user/yap.service
+          grep -F 'ExecStop=-/usr/bin/yapctl cancel' /usr/lib/systemd/user/yap.service
           test -f /usr/lib/systemd/user/yap-overlay.service
           test -f /usr/lib/systemd/user/yap-tray.service
           test -f /usr/share/dbus-1/services/com.yap.Yap.service
