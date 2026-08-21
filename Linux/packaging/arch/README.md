@@ -23,9 +23,23 @@ yap setup hyprland
 user-owned Dictation and Command Mode bindings. The package never downloads a model as root and
 never edits a new user's Hyprland config. Package upgrades leave models and user state untouched.
 
+## GitHub release
+
+Before tagging, set `pkgver`/`pkgrel`, pin `_commit` to the final tested source commit, update the
+archive checksum, and regenerate `.SRCINFO` with `makepkg --printsrcinfo`. Merge those changes to
+`main`, then push the matching `vMAJOR.MINOR.PATCH` tag.
+
+The tag workflow fails unless the tag, macOS bundle, Rust workspace, and Arch package versions
+match. It also rejects unpinned Linux runtime changes. The workflow builds and installs the CPU
+package before publishing, creates the notarized macOS release, then attaches the Arch package and
+its SHA-256 file to the same GitHub Release.
+
+## AUR publication
+
 To publish an update to the AUR, bump `pkgver`/`pkgrel`, pin `_commit`, update the source checksum,
 regenerate `.SRCINFO` with `makepkg --printsrcinfo`, and copy `PKGBUILD`, `.SRCINFO`, and
-`yap.install` into the `yap-dictation` AUR repository.
+`yap.install` into the `yap-dictation` AUR repository. This remains an explicit maintainer step;
+the GitHub tag workflow never publishes to the AUR.
 
 ## Development package
 
