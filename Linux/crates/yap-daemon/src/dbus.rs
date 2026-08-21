@@ -151,6 +151,7 @@ pub async fn serve(
     mut levels: watch::Receiver<f64>,
 ) -> zbus::Result<()> {
     let coordinator = Coordinator::new(runtime);
+    let shutdown_coordinator = Arc::clone(&coordinator);
     let mut statuses = coordinator.subscribe();
     let mut store_updates = store.subscribe();
     let connection = connection::Builder::session()?
@@ -210,8 +211,19 @@ pub async fn serve(
         }
     });
 
-    tokio::signal::ctrl_c().await?;
+    wait_for_shutdown().await?;
+    if let Err(error) = shutdown_coordinator.cancel().await {
+        eprintln!("yapd: could not cleanly cancel capture during shutdown: {error}");
+    }
     Ok(())
+}
+
+async fn wait_for_shutdown() -> std::io::Result<()> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => result,
+        _ = terminate.recv() => Ok(()),
+    }
 }
 
 #[zbus::proxy(
