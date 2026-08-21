@@ -9,11 +9,15 @@ arch=('x86_64')
 url='https://github.com/kylescudder/yap'
 license=('MIT')
 depends=(
+  'glib2'
+  'gtk3'
   'gtk4'
   'gtk4-layer-shell'
   'hicolor-icon-theme'
+  'hyprland'
   'libayatana-appindicator'
   'llama-cpp'
+  'pango'
   'pipewire-audio'
   'python-gobject'
   'whisper-cpp'
