@@ -35,7 +35,7 @@ pkgbase = yap-dictation
 	conflicts = yap-linux-dev
 	conflicts = yap-linux-dev-debug
 	options = !debug
-	source = yap-dictation-0.0.12.tar.gz::https://github.com/kylescudder/yap/archive/c9f9829a381acb83baba524e22ad037c9903c184.tar.gz
-	sha256sums = 720340a41fdd079c068e206e39ba86b7b51270bf34b1dc8534149ee236778d2a
+	source = yap-dictation-0.0.12.tar.gz::https://github.com/kylescudder/yap/archive/cfdd1e89f019165d4589dc4e96142f800f354010.tar.gz
+	sha256sums = f9b5bd1589a72ac821fe7c1f650024a56aea442e4d47f9990baab9f7b9f3ed55
 
 pkgname = yap-dictation
