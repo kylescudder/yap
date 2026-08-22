@@ -9,7 +9,7 @@ use crate::store::{AudioMode, Settings};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_SINK: &str = "@DEFAULT_AUDIO_SINK@";
-const PAUSE_SETTLE_DELAY: Duration = Duration::from_millis(100);
+const PAUSE_SETTLE_DELAY: Duration = Duration::from_millis(200);
 
 #[async_trait::async_trait]
 trait AudioBackend: Sync {
@@ -437,7 +437,7 @@ mod tests {
         );
         assert!((restored_volume - 0.8).abs() < f64::EPSILON);
         assert!(
-            restored_at.saturating_sub(pause_at) >= Duration::from_millis(80),
+            restored_at.saturating_sub(pause_at) >= Duration::from_millis(200),
             "restoring the sink immediately after MPRIS Pause leaks buffered audio"
         );
     }
