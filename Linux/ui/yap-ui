@@ -16,6 +16,7 @@ BUS_NAME = "com.yap.Yap"
 OBJECT_PATH = "/com/yap/Yap/Dictation"
 INTERFACE_NAME = "com.yap.Yap.Dictation1"
 APPLICATION_ID = "com.yap.Yap.Dashboard"
+SAVE_NOTE_TIMEOUT_SECONDS = 3
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,7 @@ class Dashboard:
         self.snippet_cancel_button = None
         self.snippet_note = None
         self.editing_snippet_id = 0
+        self.note_clear_sources: dict[int, int] = {}
 
     def run(self) -> int:
         return self.application.run(None)
@@ -756,11 +758,24 @@ class Dashboard:
         self.snippet_cancel_button.set_visible(False)
 
     def _set_note(self, label: object, message: str, error: bool) -> None:
+        label_id = id(label)
+        if source := self.note_clear_sources.pop(label_id, 0):
+            self.GLib.source_remove(source)
+
         label.set_label(message)
         if error:
             label.add_css_class("error")
         else:
             label.remove_css_class("error")
+
+            def clear_note() -> bool:
+                self.note_clear_sources.pop(label_id, None)
+                label.set_label("")
+                return self.GLib.SOURCE_REMOVE
+
+            self.note_clear_sources[label_id] = self.GLib.timeout_add_seconds(
+                SAVE_NOTE_TIMEOUT_SECONDS, clear_note
+            )
 
     def _render_daemon(self, phase: str, action: str, locked: bool, last_error: str) -> None:
         for name in ("processing", "error"):
