@@ -9,11 +9,34 @@ use crate::store::{AudioMode, Settings};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_SINK: &str = "@DEFAULT_AUDIO_SINK@";
+const PAUSE_SETTLE_DELAY: Duration = Duration::from_millis(100);
+
+#[async_trait::async_trait]
+trait AudioBackend: Sync {
+    async fn run(&self, program: &str, arguments: &[&str]) -> Result<String, String>;
+
+    async fn sleep(&self, duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+}
+
+struct SystemAudioBackend;
+
+#[async_trait::async_trait]
+impl AudioBackend for SystemAudioBackend {
+    async fn run(&self, program: &str, arguments: &[&str]) -> Result<String, String> {
+        run_command(program, arguments).await
+    }
+}
+
+const SYSTEM_AUDIO: SystemAudioBackend = SystemAudioBackend;
 
 #[derive(Debug)]
 enum AudioAction {
     None,
-    Lowered { original_volume: f64 },
+    Lowered {
+        original_volume: f64,
+    },
     Paused {
         players: Vec<String>,
         original_volume: Option<f64>,
@@ -31,8 +54,8 @@ impl AudioSession {
     pub async fn begin(settings: &Settings) -> Self {
         let action = match settings.audio_mode {
             AudioMode::Off => AudioAction::None,
-            AudioMode::Lower => lower_if_playing(settings.duck_level).await,
-            AudioMode::Pause => pause_players().await,
+            AudioMode::Lower => lower_if_playing(&SYSTEM_AUDIO, settings.duck_level).await,
+            AudioMode::Pause => pause_players(&SYSTEM_AUDIO).await,
         };
         Self { action }
     }
@@ -42,8 +65,8 @@ impl AudioSession {
         match self.action {
             AudioAction::None => {}
             AudioAction::Lowered { original_volume } => {
-                let from = get_volume().await.unwrap_or(original_volume);
-                if let Err(error) = ramp_volume(from, original_volume, 7).await {
+                let from = get_volume(&SYSTEM_AUDIO).await.unwrap_or(original_volume);
+                if let Err(error) = ramp_volume(&SYSTEM_AUDIO, from, original_volume, 7).await {
                     eprintln!("yapd: could not restore output volume: {error}");
                 }
             }
@@ -52,15 +75,15 @@ impl AudioSession {
                 original_volume,
             } => {
                 if original_volume.is_some() {
-                    let _ = set_volume(0.0).await;
+                    let _ = set_volume(&SYSTEM_AUDIO, 0.0).await;
                 }
                 for player in players {
-                    if let Err(error) = call_player(&player, "Play").await {
+                    if let Err(error) = call_player(&SYSTEM_AUDIO, &player, "Play").await {
                         eprintln!("yapd: could not resume a player paused by Yap: {error}");
                     }
                 }
                 if let Some(original_volume) = original_volume {
-                    if let Err(error) = ramp_volume(0.0, original_volume, 9).await {
+                    if let Err(error) = ramp_volume(&SYSTEM_AUDIO, 0.0, original_volume, 9).await {
                         eprintln!("yapd: could not restore output volume after pause: {error}");
                     }
                 }
@@ -69,40 +92,49 @@ impl AudioSession {
     }
 }
 
-async fn lower_if_playing(target: f64) -> AudioAction {
-    if !pipewire_has_playback().await && playing_players().await.is_empty() {
+async fn lower_if_playing(backend: &impl AudioBackend, target: f64) -> AudioAction {
+    if !pipewire_has_playback(backend).await && playing_players(backend).await.is_empty() {
         return AudioAction::None;
     }
-    let Ok(original_volume) = get_volume().await else {
+    let Ok(original_volume) = get_volume(backend).await else {
         return AudioAction::None;
     };
     let lowered = original_volume.min(target.clamp(0.0, 1.0));
-    if ramp_volume(original_volume, lowered, 6).await.is_err() {
-        let _ = set_volume(original_volume).await;
+    if ramp_volume(backend, original_volume, lowered, 6)
+        .await
+        .is_err()
+    {
+        let _ = set_volume(backend, original_volume).await;
         AudioAction::None
     } else {
         AudioAction::Lowered { original_volume }
     }
 }
 
-async fn pause_players() -> AudioAction {
-    let players = playing_players().await;
+async fn pause_players(backend: &impl AudioBackend) -> AudioAction {
+    let players = playing_players(backend).await;
     if players.is_empty() {
         return AudioAction::None;
     }
-    let original_volume = get_volume().await.ok();
+    let original_volume = get_volume(backend).await.ok();
     if let Some(volume) = original_volume {
-        let _ = ramp_volume(volume, 0.0, 7).await;
+        let _ = ramp_volume(backend, volume, 0.0, 7).await;
     }
 
     let mut paused = Vec::new();
     for player in players {
-        if call_player(&player, "Pause").await.is_ok() {
+        if call_player(backend, &player, "Pause").await.is_ok() {
             paused.push(player);
         }
     }
     if let Some(volume) = original_volume {
-        let _ = set_volume(volume).await;
+        // MPRIS method completion does not mean the player's queued PipeWire frames have drained.
+        // Keep the sink silent long enough for those frames to clear before restoring its slider,
+        // otherwise a short burst of playback can leak through after the fade reaches zero.
+        if !paused.is_empty() {
+            backend.sleep(PAUSE_SETTLE_DELAY).await;
+        }
+        let _ = set_volume(backend, volume).await;
     }
     if paused.is_empty() {
         AudioAction::None
@@ -114,25 +146,28 @@ async fn pause_players() -> AudioAction {
     }
 }
 
-async fn playing_players() -> Vec<String> {
-    let Ok(output) = run("busctl", &["--user", "--list", "--no-pager", "--no-legend"]).await
+async fn playing_players(backend: &impl AudioBackend) -> Vec<String> {
+    let Ok(output) = backend
+        .run("busctl", &["--user", "--list", "--no-pager", "--no-legend"])
+        .await
     else {
         return Vec::new();
     };
     let mut playing = Vec::new();
     for player in mpris_names(&output) {
-        let Ok(status) = run(
-            "busctl",
-            &[
-                "--user",
-                "get-property",
-                &player,
-                "/org/mpris/MediaPlayer2",
-                "org.mpris.MediaPlayer2.Player",
-                "PlaybackStatus",
-            ],
-        )
-        .await
+        let Ok(status) = backend
+            .run(
+                "busctl",
+                &[
+                    "--user",
+                    "get-property",
+                    &player,
+                    "/org/mpris/MediaPlayer2",
+                    "org.mpris.MediaPlayer2.Player",
+                    "PlaybackStatus",
+                ],
+            )
+            .await
         else {
             continue;
         };
@@ -143,24 +178,29 @@ async fn playing_players() -> Vec<String> {
     playing
 }
 
-async fn call_player(player: &str, method: &str) -> Result<(), String> {
-    run(
-        "busctl",
-        &[
-            "--user",
-            "call",
-            player,
-            "/org/mpris/MediaPlayer2",
-            "org.mpris.MediaPlayer2.Player",
-            method,
-        ],
-    )
-    .await
-    .map(|_| ())
+async fn call_player(
+    backend: &impl AudioBackend,
+    player: &str,
+    method: &str,
+) -> Result<(), String> {
+    backend
+        .run(
+            "busctl",
+            &[
+                "--user",
+                "call",
+                player,
+                "/org/mpris/MediaPlayer2",
+                "org.mpris.MediaPlayer2.Player",
+                method,
+            ],
+        )
+        .await
+        .map(|_| ())
 }
 
-async fn pipewire_has_playback() -> bool {
-    let Ok(output) = run("pw-dump", &[]).await else {
+async fn pipewire_has_playback(backend: &impl AudioBackend) -> bool {
+    let Ok(output) = backend.run("pw-dump", &[]).await else {
         return false;
     };
     serde_json::from_str::<Value>(&output)
@@ -177,28 +217,34 @@ fn is_running_audio_output(object: &Value) -> bool {
             .is_some_and(|class| class == "Stream/Output/Audio")
 }
 
-async fn get_volume() -> Result<f64, String> {
-    let output = run("wpctl", &["get-volume", DEFAULT_SINK]).await?;
+async fn get_volume(backend: &impl AudioBackend) -> Result<f64, String> {
+    let output = backend.run("wpctl", &["get-volume", DEFAULT_SINK]).await?;
     parse_volume(&output).ok_or_else(|| "wpctl returned an unrecognized volume".to_owned())
 }
 
-async fn set_volume(volume: f64) -> Result<(), String> {
+async fn set_volume(backend: &impl AudioBackend, volume: f64) -> Result<(), String> {
     let volume = format!("{:.4}", volume.max(0.0));
-    run("wpctl", &["set-volume", DEFAULT_SINK, &volume])
+    backend
+        .run("wpctl", &["set-volume", DEFAULT_SINK, &volume])
         .await
         .map(|_| ())
 }
 
-async fn ramp_volume(from: f64, to: f64, steps: u32) -> Result<(), String> {
+async fn ramp_volume(
+    backend: &impl AudioBackend,
+    from: f64,
+    to: f64,
+    steps: u32,
+) -> Result<(), String> {
     for step in 1..=steps.max(1) {
         let fraction = f64::from(step) / f64::from(steps.max(1));
-        set_volume(from + (to - from) * fraction).await?;
-        tokio::time::sleep(Duration::from_millis(18)).await;
+        set_volume(backend, from + (to - from) * fraction).await?;
+        backend.sleep(Duration::from_millis(18)).await;
     }
     Ok(())
 }
 
-async fn run(program: &str, arguments: &[&str]) -> Result<String, String> {
+async fn run_command(program: &str, arguments: &[&str]) -> Result<String, String> {
     let output = tokio::time::timeout(
         COMMAND_TIMEOUT,
         Command::new(program)
@@ -236,7 +282,76 @@ fn playback_status(output: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    #[derive(Debug, Clone, Copy)]
+    enum BackendEvent {
+        Pause { at: Duration },
+        Volume { at: Duration, value: f64 },
+    }
+
+    #[derive(Debug, Default)]
+    struct FakeAudioBackend {
+        elapsed: Mutex<Duration>,
+        events: Mutex<Vec<BackendEvent>>,
+    }
+
+    impl FakeAudioBackend {
+        fn now(&self) -> Duration {
+            *self.elapsed.lock().expect("fake clock lock")
+        }
+
+        fn events(&self) -> Vec<BackendEvent> {
+            self.events.lock().expect("fake event lock").clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AudioBackend for FakeAudioBackend {
+        async fn run(&self, program: &str, arguments: &[&str]) -> Result<String, String> {
+            match (program, arguments.get(1).copied()) {
+                ("busctl", Some("--list")) => {
+                    Ok("org.mpris.MediaPlayer2.spotify 123 user\n".to_owned())
+                }
+                ("busctl", Some("get-property")) => Ok("s \"Playing\"\n".to_owned()),
+                ("busctl", Some("call")) => {
+                    if arguments.last() == Some(&"Pause") {
+                        self.events
+                            .lock()
+                            .expect("fake event lock")
+                            .push(BackendEvent::Pause { at: self.now() });
+                    }
+                    Ok(String::new())
+                }
+                ("wpctl", _) if arguments.first() == Some(&"get-volume") => {
+                    Ok("Volume: 0.8000\n".to_owned())
+                }
+                ("wpctl", _) if arguments.first() == Some(&"set-volume") => {
+                    let value = arguments
+                        .last()
+                        .expect("set-volume value")
+                        .parse()
+                        .expect("numeric set-volume value");
+                    self.events
+                        .lock()
+                        .expect("fake event lock")
+                        .push(BackendEvent::Volume {
+                            at: self.now(),
+                            value,
+                        });
+                    Ok(String::new())
+                }
+                ("pw-dump", _) => Ok("[]".to_owned()),
+                _ => Err(format!("unexpected command: {program} {arguments:?}")),
+            }
+        }
+
+        async fn sleep(&self, duration: Duration) {
+            *self.elapsed.lock().expect("fake clock lock") += duration;
+        }
+    }
 
     #[test]
     fn wpctl_volume_parser_preserves_exact_scalar() {
@@ -263,5 +378,52 @@ mod tests {
         });
         assert!(is_running_audio_output(&running));
         assert!(!is_running_audio_output(&idle));
+    }
+
+    #[tokio::test]
+    async fn pause_mode_keeps_sink_silent_until_player_settles() {
+        let backend = FakeAudioBackend::default();
+
+        let action = pause_players(&backend).await;
+
+        assert!(matches!(action, AudioAction::Paused { .. }));
+        let events = backend.events();
+        let pause_at = events
+            .iter()
+            .find_map(|event| match event {
+                BackendEvent::Pause { at } => Some(*at),
+                BackendEvent::Volume { .. } => None,
+            })
+            .expect("the playing MPRIS client should be paused");
+        let fade: Vec<f64> = events
+            .iter()
+            .filter_map(|event| match event {
+                BackendEvent::Volume { at, value } if *at <= pause_at => Some(*value),
+                BackendEvent::Pause { .. } | BackendEvent::Volume { .. } => None,
+            })
+            .collect();
+        let (restored_at, restored_volume) = events
+            .iter()
+            .find_map(|event| match event {
+                BackendEvent::Volume { at, value } if *at >= pause_at && *value > 0.0 => {
+                    Some((*at, *value))
+                }
+                BackendEvent::Pause { .. } | BackendEvent::Volume { .. } => None,
+            })
+            .expect("the original sink volume should be restored");
+
+        assert!(
+            fade.windows(2).all(|levels| levels[0] > levels[1]),
+            "the sink should fade down monotonically before MPRIS Pause"
+        );
+        assert!(
+            fade.last()
+                .is_some_and(|volume| volume.abs() < f64::EPSILON)
+        );
+        assert!((restored_volume - 0.8).abs() < f64::EPSILON);
+        assert!(
+            restored_at.saturating_sub(pause_at) >= Duration::from_millis(80),
+            "restoring the sink immediately after MPRIS Pause leaks buffered audio"
+        );
     }
 }
