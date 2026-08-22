@@ -130,11 +130,13 @@ async fn pause_players(backend: &impl AudioBackend) -> AudioAction {
     if let Some(volume) = original_volume {
         // MPRIS method completion does not mean the player's queued PipeWire frames have drained.
         // Keep the sink silent long enough for those frames to clear before restoring its slider,
-        // otherwise a short burst of playback can leak through after the fade reaches zero.
+        // then ramp the hardware-facing sink back up instead of making one large volume jump.
         if !paused.is_empty() {
             backend.sleep(PAUSE_SETTLE_DELAY).await;
         }
-        let _ = set_volume(backend, volume).await;
+        if ramp_volume(backend, 0.0, volume, 7).await.is_err() {
+            let _ = set_volume(backend, volume).await;
+        }
     }
     if paused.is_empty() {
         AudioAction::None
@@ -402,15 +404,20 @@ mod tests {
                 BackendEvent::Pause { .. } | BackendEvent::Volume { .. } => None,
             })
             .collect();
-        let (restored_at, restored_volume) = events
+        let restored: Vec<(Duration, f64)> = events
             .iter()
-            .find_map(|event| match event {
+            .filter_map(|event| match event {
                 BackendEvent::Volume { at, value } if *at >= pause_at && *value > 0.0 => {
                     Some((*at, *value))
                 }
                 BackendEvent::Pause { .. } | BackendEvent::Volume { .. } => None,
             })
+            .collect();
+        let restored_at = restored
+            .first()
+            .map(|(at, _)| *at)
             .expect("the original sink volume should be restored");
+        let restored_volume = restored.last().expect("a final restored volume").1;
 
         assert!(
             fade.windows(2).all(|levels| levels[0] > levels[1]),
@@ -419,6 +426,14 @@ mod tests {
         assert!(
             fade.last()
                 .is_some_and(|volume| volume.abs() < f64::EPSILON)
+        );
+        let mut restore_levels = vec![0.0];
+        restore_levels.extend(restored.iter().map(|(_, volume)| *volume));
+        assert!(
+            restore_levels
+                .windows(2)
+                .all(|levels| levels[1] - levels[0] <= 0.2),
+            "pause mode must not jump directly from silence to the original sink volume"
         );
         assert!((restored_volume - 0.8).abs() < f64::EPSILON);
         assert!(
