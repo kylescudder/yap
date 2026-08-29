@@ -168,7 +168,6 @@ class OverlayApplication:
         self.window.set_focusable(False)
         self.window.set_resizable(False)
         self.window.set_default_size(112, 32)
-        self.window.set_accessible_role(self.Gtk.AccessibleRole.STATUS)
 
         self.LayerShell.init_for_window(self.window)
         self.LayerShell.set_namespace(self.window, "yap-overlay")
