@@ -28,6 +28,9 @@
             pkgs.gtk4-layer-shell
             pkgs.libayatana-appindicator
           ];
+          libraryPath = pkgs.lib.makeLibraryPath [
+            pkgs.gtk4-layer-shell
+          ];
         in {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "yap";
@@ -35,6 +38,7 @@
             src = self;
 
             cargoRoot = "Linux";
+            buildAndTestSubdir = "Linux";
             cargoLock.lockFile = ./Linux/Cargo.lock;
 
             nativeBuildInputs = [
@@ -59,9 +63,15 @@
 
               patchShebangs "$out/bin/yap-overlay" "$out/bin/yap-ui" "$out/bin/yap-tray"
 
+              for tool in yap yapctl yapd; do
+                wrapProgram "$out/bin/$tool" \
+                  --prefix PATH : "${runtimePath}"
+              done
+
               for tool in yap-overlay yap-ui yap-tray; do
                 wrapProgram "$out/bin/$tool" \
                   --prefix PATH : "${runtimePath}" \
+                  --prefix LD_LIBRARY_PATH : "${libraryPath}" \
                   --set GI_TYPELIB_PATH "${typelibPath}" \
                   --set PYTHONPATH "${python}/${python.sitePackages}"
               done
