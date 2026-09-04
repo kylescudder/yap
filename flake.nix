@@ -44,6 +44,7 @@
             nativeBuildInputs = [
               pkgs.makeWrapper
               pkgs.pkg-config
+              python
             ];
 
             buildInputs = [
