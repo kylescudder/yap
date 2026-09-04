@@ -323,27 +323,52 @@ impl<S: System> Doctor<S> {
     }
 
     fn acceleration(&self) -> Check {
-        match self.system.run(
+        let backend = self
+            .system
+            .environment("YAP_WHISPER_BACKEND")
+            .unwrap_or_else(|| "cpu".to_owned());
+
+        let gpu = self.system.run(
             "nvidia-smi",
             &[
                 "--query-gpu=name,driver_version,memory.total",
                 "--format=csv,noheader",
             ],
-        ) {
-            Ok(gpu) => check(
+        );
+
+        match (backend.as_str(), gpu) {
+            ("cuda", Ok(gpu)) => check(
                 "acceleration",
-                CheckStatus::Warning,
+                CheckStatus::Pass,
                 "Inference acceleration",
                 format!(
-                    "{}; GPU acceleration depends on the packaged whisper.cpp backend",
+                    "{}; CUDA acceleration is enabled",
                     gpu.lines().next().unwrap_or("NVIDIA GPU detected")
                 ),
             ),
-            Err(_) => check(
+
+            ("cuda", Err(_)) => check(
                 "acceleration",
-                CheckStatus::Warning,
+                CheckStatus::Blocked,
                 "Inference acceleration",
-                "no NVIDIA runtime detected; Yap will use its CPU fallback".to_owned(),
+                "Yap was packaged with CUDA support, but no NVIDIA runtime is available".to_owned(),
+            ),
+
+            (_, Ok(gpu)) => check(
+                "acceleration",
+                CheckStatus::Pass,
+                "Inference acceleration",
+                format!(
+                    "{}; CPU inference is available; CUDA is not enabled in this package",
+                    gpu.lines().next().unwrap_or("NVIDIA GPU detected")
+                ),
+            ),
+
+            (_, Err(_)) => check(
+                "acceleration",
+                CheckStatus::Pass,
+                "Inference acceleration",
+                "CPU inference is available".to_owned(),
             ),
         }
     }
@@ -558,23 +583,25 @@ mod tests {
     }
 
     #[test]
-    fn cpu_fallback_is_degraded_but_not_blocked() {
+    fn cpu_fallback_is_ready_when_models_are_installed() {
         let mut system = FakeSystem::compatible();
         system.commands.remove("nvidia-smi");
+
         system.paths.push(
             "/home/test/.local/share/yap/models/large-v3-turbo-q5_0/394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2/ggml-large-v3-turbo-q5_0.bin"
                 .to_owned(),
         );
-        system.paths.push(
-            format!(
-                "/home/test/.local/share/yap/models/{}/{}/{}",
-                model::CLEANUP_MODEL_NAME,
-                model::CLEANUP_MODEL_SHA256,
-                model::CLEANUP_MODEL_FILE_NAME
-            ),
-        );
+
+        system.paths.push(format!(
+            "/home/test/.local/share/yap/models/{}/{}/{}",
+            model::CLEANUP_MODEL_NAME,
+            model::CLEANUP_MODEL_SHA256,
+            model::CLEANUP_MODEL_FILE_NAME
+        ));
+
         let report = Doctor::new(system).run();
-        assert_eq!(report.compatibility, Compatibility::Degraded);
+
+        assert_eq!(report.compatibility, Compatibility::Ready);
     }
 
     #[test]
