@@ -323,6 +323,38 @@ impl<S: System> Doctor<S> {
     }
 
     fn acceleration(&self) -> Check {
+        let backend = self
+            .system
+            .environment("YAP_WHISPER_BACKEND")
+            .unwrap_or_else(|| "cpu".to_owned());
+
+        if backend == "cuda" {
+            return match self.system.run(
+                "nvidia-smi",
+                &[
+                    "--query-gpu=name,driver_version,memory.total",
+                    "--format=csv,noheader",
+                ],
+            ) {
+                Ok(gpu) => check(
+                    "acceleration",
+                    CheckStatus::Pass,
+                    "Inference acceleration",
+                    format!(
+                        "{}; CUDA-enabled whisper.cpp backend is packaged",
+                        gpu.lines().next().unwrap_or("NVIDIA GPU detected")
+                    ),
+                ),
+                Err(_) => check(
+                    "acceleration",
+                    CheckStatus::Warning,
+                    "Inference acceleration",
+                    "CUDA-enabled whisper.cpp is packaged, but no NVIDIA runtime was detected"
+                        .to_owned(),
+                ),
+            };
+        }
+
         match self.system.run(
             "nvidia-smi",
             &[
@@ -332,18 +364,18 @@ impl<S: System> Doctor<S> {
         ) {
             Ok(gpu) => check(
                 "acceleration",
-                CheckStatus::Warning,
+                CheckStatus::Pass,
                 "Inference acceleration",
                 format!(
-                    "{}; GPU acceleration depends on the packaged whisper.cpp backend",
+                    "{}; CPU inference is available and GPU acceleration is optional",
                     gpu.lines().next().unwrap_or("NVIDIA GPU detected")
                 ),
             ),
             Err(_) => check(
                 "acceleration",
-                CheckStatus::Warning,
+                CheckStatus::Pass,
                 "Inference acceleration",
-                "no NVIDIA runtime detected; Yap will use its CPU fallback".to_owned(),
+                "CPU inference is available".to_owned(),
             ),
         }
     }
@@ -510,10 +542,7 @@ mod tests {
         let report = Doctor::new(FakeSystem::compatible()).run();
         assert_eq!(report.compatibility, Compatibility::SetupRequired);
         assert!(report.checks.iter().all(|check| {
-            matches!(
-                check.status,
-                CheckStatus::Pass | CheckStatus::Warning | CheckStatus::SetupRequired
-            )
+            matches!(check.status, CheckStatus::Pass | CheckStatus::SetupRequired)
         }));
     }
 
@@ -558,23 +587,51 @@ mod tests {
     }
 
     #[test]
-    fn cpu_fallback_is_degraded_but_not_blocked() {
+    fn cpu_inference_is_healthy_without_nvidia() {
         let mut system = FakeSystem::compatible();
         system.commands.remove("nvidia-smi");
         system.paths.push(
             "/home/test/.local/share/yap/models/large-v3-turbo-q5_0/394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2/ggml-large-v3-turbo-q5_0.bin"
                 .to_owned(),
         );
-        system.paths.push(
-            format!(
-                "/home/test/.local/share/yap/models/{}/{}/{}",
-                model::CLEANUP_MODEL_NAME,
-                model::CLEANUP_MODEL_SHA256,
-                model::CLEANUP_MODEL_FILE_NAME
-            ),
-        );
+        system.paths.push(format!(
+            "/home/test/.local/share/yap/models/{}/{}/{}",
+            model::CLEANUP_MODEL_NAME,
+            model::CLEANUP_MODEL_SHA256,
+            model::CLEANUP_MODEL_FILE_NAME
+        ));
+
         let report = Doctor::new(system).run();
-        assert_eq!(report.compatibility, Compatibility::Degraded);
+        assert_eq!(report.compatibility, Compatibility::Ready);
+    }
+
+    #[test]
+    fn cuda_backend_is_reported_as_healthy_when_nvidia_is_available() {
+        let mut system = FakeSystem::compatible();
+        system
+            .environment
+            .insert("YAP_WHISPER_BACKEND".to_owned(), "cuda".to_owned());
+        system.paths.push(
+            "/home/test/.local/share/yap/models/large-v3-turbo-q5_0/394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2/ggml-large-v3-turbo-q5_0.bin"
+                .to_owned(),
+        );
+        system.paths.push(format!(
+            "/home/test/.local/share/yap/models/{}/{}/{}",
+            model::CLEANUP_MODEL_NAME,
+            model::CLEANUP_MODEL_SHA256,
+            model::CLEANUP_MODEL_FILE_NAME
+        ));
+
+        let report = Doctor::new(system).run();
+        let acceleration = report
+            .checks
+            .iter()
+            .find(|check| check.id == "acceleration")
+            .unwrap();
+
+        assert_eq!(report.compatibility, Compatibility::Ready);
+        assert_eq!(acceleration.status, CheckStatus::Pass);
+        assert!(acceleration.detail.contains("CUDA-enabled"));
     }
 
     #[test]
