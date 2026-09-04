@@ -23,6 +23,7 @@
           ];
           typelibPath = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
             pkgs.glib
+            pkgs.graphene
             pkgs.gtk3
             pkgs.gtk4
             pkgs.gtk4-layer-shell
@@ -49,6 +50,7 @@
 
             buildInputs = [
               pkgs.glib
+              pkgs.graphene
               pkgs.gtk3
               pkgs.gtk4
               pkgs.gtk4-layer-shell
