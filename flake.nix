@@ -21,18 +21,6 @@
             pkgs.whisper-cpp
             pkgs.wtype
           ];
-          typelibPath = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
-            pkgs.glib
-            pkgs.gobject-introspection
-            pkgs.gdk-pixbuf
-            pkgs.graphene
-            pkgs.harfbuzz
-            pkgs.gtk3
-            pkgs.gtk4
-            pkgs.gtk4-layer-shell
-            pkgs.libayatana-appindicator
-            pkgs.pango
-          ];
           libraryPath = pkgs.lib.makeLibraryPath [
             pkgs.gtk4-layer-shell
           ];
@@ -47,22 +35,28 @@
             cargoLock.lockFile = ./Linux/Cargo.lock;
 
             nativeBuildInputs = [
+              pkgs.gobject-introspection
               pkgs.makeWrapper
               pkgs.pkg-config
+              pkgs.wrapGAppsHook4
               python
             ];
 
             buildInputs = [
               pkgs.cairo
+              pkgs.gdk-pixbuf
               pkgs.glib
               pkgs.graphene
               pkgs.gtk3
               pkgs.gtk4
               pkgs.gtk4-layer-shell
+              pkgs.harfbuzz
               pkgs.libayatana-appindicator
               pkgs.pango
               pkgs.pipewire
             ];
+
+            dontWrapGApps = true;
 
             postInstall = ''
               install -Dm755 Linux/ui/yap-overlay "$out/bin/yap-overlay"
@@ -77,14 +71,6 @@
               for tool in yap yapctl yapd; do
                 wrapProgram "$out/bin/$tool" \
                   --prefix PATH : "${runtimePath}"
-              done
-
-              for tool in yap-overlay yap-ui yap-tray; do
-                wrapProgram "$out/bin/$tool" \
-                  --prefix PATH : "${runtimePath}" \
-                  --prefix LD_LIBRARY_PATH : "${libraryPath}" \
-                  --set GI_TYPELIB_PATH "${typelibPath}" \
-                  --set PYTHONPATH "${python}/${python.sitePackages}"
               done
 
               install -Dm644 Linux/packaging/dbus/com.yap.Yap.service \
@@ -110,6 +96,16 @@
 
               install -Dm644 README.md "$out/share/doc/yap/README.md"
               install -Dm644 LICENSE "$out/share/licenses/yap/LICENSE"
+            '';
+
+            preFixup = ''
+              for tool in yap-overlay yap-ui yap-tray; do
+                wrapProgram "$out/bin/$tool" \
+                  --prefix PATH : "${runtimePath}" \
+                  --prefix LD_LIBRARY_PATH : "${libraryPath}" \
+                  --set PYTHONPATH "${python}/${python.sitePackages}" \
+                  "''${gappsWrapperArgs[@]}"
+              done
             '';
 
             meta = {
