@@ -22,6 +22,7 @@
             pkgs.wtype
           ];
           typelibPath = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
+            pkgs.cairo
             pkgs.glib
             pkgs.graphene
             pkgs.gtk3
@@ -49,6 +50,7 @@
             ];
 
             buildInputs = [
+              pkgs.cairo
               pkgs.glib
               pkgs.graphene
               pkgs.gtk3
