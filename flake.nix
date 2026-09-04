@@ -22,13 +22,16 @@
             pkgs.wtype
           ];
           typelibPath = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
-            pkgs.cairo
             pkgs.glib
+            pkgs.gobject-introspection
+            pkgs.gdk-pixbuf
             pkgs.graphene
+            pkgs.harfbuzz
             pkgs.gtk3
             pkgs.gtk4
             pkgs.gtk4-layer-shell
             pkgs.libayatana-appindicator
+            pkgs.pango
           ];
           libraryPath = pkgs.lib.makeLibraryPath [
             pkgs.gtk4-layer-shell
