@@ -138,7 +138,7 @@ impl<S: System> Doctor<S> {
                 "architecture",
                 CheckStatus::Blocked,
                 "CPU architecture",
-                format!("{architecture} is not supported by the first Arch package"),
+                format!("{architecture} is not supported by the current Linux build"),
             )
         }
     }
@@ -258,31 +258,21 @@ impl<S: System> Doctor<S> {
     }
 
     fn transcriber(&self) -> Check {
-        if !self.system.command_exists("whisper-server") {
-            return check(
+        if self.system.command_exists("whisper-server") {
+            check(
+                "transcriber",
+                CheckStatus::Pass,
+                "Transcription runtime",
+                "whisper.cpp server is available on PATH".to_owned(),
+            )
+        } else {
+            check(
                 "transcriber",
                 CheckStatus::Blocked,
                 "Transcription runtime",
-                "whisper.cpp runtime is missing; reinstall the Yap package dependencies".to_owned(),
-            );
+                "whisper-server is missing; reinstall the Yap package dependencies".to_owned(),
+            )
         }
-
-        if self.system.run("pacman", &["-Q", "ggml-cpu"]).is_err() {
-            return check(
-                "transcriber",
-                CheckStatus::Blocked,
-                "Transcription runtime",
-                "ggml-cpu is missing; whisper.cpp requires the CPU backend even when CUDA is enabled"
-                    .to_owned(),
-            );
-        }
-
-        check(
-            "transcriber",
-            CheckStatus::Pass,
-            "Transcription runtime",
-            "whisper.cpp runtime and required CPU backend are installed".to_owned(),
-        )
     }
 
     fn insertion(&self) -> Check {
@@ -340,21 +330,12 @@ impl<S: System> Doctor<S> {
                 "--format=csv,noheader",
             ],
         ) {
-            Ok(gpu) if self.system.run("pacman", &["-Q", "ggml-cuda"]).is_ok() => check(
-                "acceleration",
-                CheckStatus::Pass,
-                "Inference acceleration",
-                format!(
-                    "{}; ggml CUDA backend is installed",
-                    gpu.lines().next().unwrap_or("NVIDIA GPU detected")
-                ),
-            ),
             Ok(gpu) => check(
                 "acceleration",
                 CheckStatus::Warning,
                 "Inference acceleration",
                 format!(
-                    "{}; ggml-cuda is missing, so Yap will use CPU fallback",
+                    "{}; GPU acceleration depends on the packaged whisper.cpp backend",
                     gpu.lines().next().unwrap_or("NVIDIA GPU detected")
                 ),
             ),
@@ -489,14 +470,6 @@ mod tests {
                     ("wl-copy".to_owned(), Ok(String::new())),
                     ("wl-paste".to_owned(), Ok(String::new())),
                     ("nvidia-smi".to_owned(), Ok("RTX 3080".to_owned())),
-                    (
-                        "pacman -Q ggml-cpu".to_owned(),
-                        Ok("ggml-cpu 0.20.0".to_owned()),
-                    ),
-                    (
-                        "pacman -Q ggml-cuda".to_owned(),
-                        Ok("ggml-cuda 0.20.0".to_owned()),
-                    ),
                 ]),
                 paths: Vec::new(),
             }
@@ -537,7 +510,10 @@ mod tests {
         let report = Doctor::new(FakeSystem::compatible()).run();
         assert_eq!(report.compatibility, Compatibility::SetupRequired);
         assert!(report.checks.iter().all(|check| {
-            matches!(check.status, CheckStatus::Pass | CheckStatus::SetupRequired)
+            matches!(
+                check.status,
+                CheckStatus::Pass | CheckStatus::Warning | CheckStatus::SetupRequired
+            )
         }));
     }
 
@@ -552,9 +528,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_cpu_backend_blocks_transcription_even_with_cuda() {
+    fn missing_whisper_server_blocks_transcription() {
         let mut system = FakeSystem::compatible();
-        system.commands.remove("pacman -Q ggml-cpu");
+        system.commands.remove("whisper-server");
 
         let report = Doctor::new(system).run();
         let transcriber = report
@@ -565,6 +541,20 @@ mod tests {
 
         assert_eq!(report.compatibility, Compatibility::Blocked);
         assert_eq!(transcriber.status, CheckStatus::Blocked);
+    }
+
+    #[test]
+    fn health_checks_do_not_require_an_arch_package_manager() {
+        let report = Doctor::new(FakeSystem::compatible()).run();
+        let transcriber = report
+            .checks
+            .iter()
+            .find(|check| check.id == "transcriber")
+            .unwrap();
+
+        assert_eq!(transcriber.status, CheckStatus::Pass);
+        assert!(!transcriber.detail.contains("pacman"));
+        assert!(!transcriber.detail.contains("ggml-cpu"));
     }
 
     #[test]
