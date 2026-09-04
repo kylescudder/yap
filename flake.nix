@@ -62,7 +62,10 @@
               install -Dm755 Linux/ui/yap-ui "$out/bin/yap-ui"
               install -Dm755 Linux/ui/yap-tray "$out/bin/yap-tray"
 
-              patchShebangs "$out/bin/yap-overlay" "$out/bin/yap-ui" "$out/bin/yap-tray"
+              for tool in yap-overlay yap-ui yap-tray; do
+                substituteInPlace "$out/bin/$tool" \
+                  --replace-fail "#!/usr/bin/python" "#!${python}/bin/python3"
+              done
 
               for tool in yap yapctl yapd; do
                 wrapProgram "$out/bin/$tool" \
