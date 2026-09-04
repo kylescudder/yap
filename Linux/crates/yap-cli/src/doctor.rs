@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_fallback_is_ready_when_models_are_installed() {
+    fn cpu_inference_is_healthy_without_nvidia() {
         let mut system = FakeSystem::compatible();
         system.commands.remove("nvidia-smi");
 
@@ -602,6 +602,60 @@ mod tests {
         let report = Doctor::new(system).run();
 
         assert_eq!(report.compatibility, Compatibility::Ready);
+    }
+
+    #[test]
+    fn cuda_backend_is_reported_as_healthy_when_nvidia_is_available() {
+        let mut system = FakeSystem::compatible();
+
+        system
+            .environment
+            .insert("YAP_WHISPER_BACKEND".to_owned(), "cuda".to_owned());
+
+        system.paths.push(
+            "/home/test/.local/share/yap/models/large-v3-turbo-q5_0/394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2/ggml-large-v3-turbo-q5_0.bin"
+                .to_owned(),
+        );
+
+        system.paths.push(format!(
+            "/home/test/.local/share/yap/models/{}/{}/{}",
+            model::CLEANUP_MODEL_NAME,
+            model::CLEANUP_MODEL_SHA256,
+            model::CLEANUP_MODEL_FILE_NAME
+        ));
+
+        let report = Doctor::new(system).run();
+
+        let acceleration = report
+            .checks
+            .iter()
+            .find(|check| check.id == "acceleration")
+            .unwrap();
+
+        assert_eq!(report.compatibility, Compatibility::Ready);
+        assert_eq!(acceleration.status, CheckStatus::Pass);
+        assert!(acceleration.detail.contains("CUDA acceleration is enabled"));
+    }
+
+    #[test]
+    fn cuda_backend_without_nvidia_is_blocked() {
+        let mut system = FakeSystem::compatible();
+
+        system
+            .environment
+            .insert("YAP_WHISPER_BACKEND".to_owned(), "cuda".to_owned());
+
+        system.commands.remove("nvidia-smi");
+
+        let report = Doctor::new(system).run();
+
+        let acceleration = report
+            .checks
+            .iter()
+            .find(|check| check.id == "acceleration")
+            .unwrap();
+
+        assert_eq!(acceleration.status, CheckStatus::Blocked);
     }
 
     #[test]
