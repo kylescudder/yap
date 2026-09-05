@@ -535,10 +535,7 @@ mod tests {
         let report = Doctor::new(FakeSystem::compatible()).run();
         assert_eq!(report.compatibility, Compatibility::SetupRequired);
         assert!(report.checks.iter().all(|check| {
-            matches!(
-                check.status,
-                CheckStatus::Pass | CheckStatus::Warning | CheckStatus::SetupRequired
-            )
+            matches!(check.status, CheckStatus::Pass | CheckStatus::SetupRequired)
         }));
     }
 
