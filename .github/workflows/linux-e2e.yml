@@ -1,0 +1,40 @@
+name: Linux E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the D-Bus session daemon and busctl
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes dbus-daemon systemd
+      - name: Build the daemon and control CLI
+        run: cargo build --locked --bins --manifest-path Linux/Cargo.toml
+      - name: Drive yapd over a private session bus
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/e2e-ci
+          dbus-run-session -- python3 Linux/e2e/daemon_journey.py -v 2>&1 | tee artifacts/e2e-ci/run.log
+      - name: Save the run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-e2e-evidence
+          retention-days: 7
+          path: artifacts/e2e-ci/

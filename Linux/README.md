@@ -26,3 +26,11 @@ StatusNotifier menu adapter.
 production `PKGBUILD` consumes an immutable checksummed GitHub archive, keeps CUDA optional, and
 installs all three user services. The disposable feasibility probe remains under `Prototypes/` and
 is not packaged.
+
+## End-to-end check
+
+`cargo build --locked --bins --manifest-path Linux/Cargo.toml && dbus-run-session -- python3 Linux/e2e/daemon_journey.py -v`
+starts the built `yapd` on a private session bus with throwaway XDG directories. It drives
+`yapctl` and the `com.yap.Yap.Dictation1` interface through status, settings validation and
+snippet add/remove, then restarts the daemon to prove state persists with `0600` permissions.
+No model, microphone or desktop is needed. Pull requests run it in the **E2E tests** job.

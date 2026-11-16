@@ -25,3 +25,4 @@ Models/
 
 # Temp debug log
 yap-debug.log
+artifacts/
