@@ -7,19 +7,22 @@ final class WaveformView: NSView {
     private let maxBars = 30
     private let barWidth: CGFloat = 3
     private let gap: CGFloat = 2
+    private let restingLevel: CGFloat = 0.05
 
     /// Brand off-white, matching the logo's waveform.
     var barColor = NSColor(srgbRed: 0xEC / 255, green: 0xEC / 255, blue: 0xF0 / 255, alpha: 0.95)
 
     func start() {
-        levels.removeAll()
+        // Draw the full silent baseline immediately instead of waiting for the audio tap to fill
+        // the waveform one sample at a time.
+        levels = Array(repeating: restingLevel, count: maxBars)
         needsDisplay = true
     }
 
     func stop() { /* nothing to tear down */ }
 
     func push(_ level: CGFloat) {
-        levels.append(min(1, max(0.05, level)))
+        levels.append(min(1, max(restingLevel, level)))
         if levels.count > maxBars { levels.removeFirst(levels.count - maxBars) }
         needsDisplay = true
     }

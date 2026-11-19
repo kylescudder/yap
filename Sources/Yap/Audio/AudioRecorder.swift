@@ -7,6 +7,7 @@ final class AudioRecorder {
     enum RecorderError: Error { case noInput }
 
     let sampleRate: Double = 16_000
+    private let meterBufferSize: AVAudioFrameCount = 512
 
     /// RMS level callback (0…~1) for the overlay meter, delivered on the main queue.
     var onLevel: ((Float) -> Void)?
@@ -33,7 +34,7 @@ final class AudioRecorder {
         outFormat = out
         converter = out.flatMap { AVAudioConverter(from: inputFormat, to: $0) }
 
-        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: meterBufferSize, format: inputFormat) { [weak self] buffer, _ in
             self?.append(buffer)
         }
         engine.prepare()
